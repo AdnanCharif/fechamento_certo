@@ -1,6 +1,7 @@
 {
   "name": "une-caixas",
   "version": "1.0.0",
+  "type": "module",
   "description": "**Domínio:** Varejo / Retail Tech — ferramenta de apoio à gestão financeira, para uso **exclusivo do gerente**.",
   "main": "index.js",
   "scripts": {
@@ -15,7 +16,6 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "bugs": {
     "url": "https://github.com/AdnanCharif/une-caixas/issues"
   },
