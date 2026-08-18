@@ -1,5 +1,10 @@
 # Projeto: Ferramenta de Conferência de Caixa para o Gerente (Posto + Loja de Conveniência)
 
+## 0. Para rodar:
+    npm install
+    cp .env.example .env   **e preencher os valores**
+    npm run dev
+
 ## 1. Área de atuação (Design Thinking)
 
 **Domínio:** Varejo / Retail Tech — ferramenta de apoio à gestão financeira, para uso **exclusivo do gerente**.
