@@ -103,8 +103,27 @@ router.post('/postos/:id/usuarios', async (req, res) => {
   }
 });
 
-router.delete('/postos/:id/usuarios/:usuarioId', (req, res) => {
+router.delete('/postos/:id/usuarios/:usuarioId', async (req, res) => {
+  const postoId = req.params.id;
+  const usuarioId = req.params.usuarioId;
 
+  const pool = req.app.get('db');
+
+  try {
+      const deleteVinculo = `
+          DELETE FROM postos_usuarios
+          WHERE posto_id = $1 AND usuario_id = $2;
+      `;
+
+      await pool.query(deleteVinculo, [postoId, usuarioId]);
+
+      res.json({
+          message: 'Usuário removido do posto com sucesso',
+      });
+  } catch (err) {
+      console.error('Erro ao remover usuário do posto:', err);
+      res.status(500).json({ error: 'Erro ao remover usuário do posto' });
+  }
 });
 
 router.get('/usuarios/me', (req, res) => {
