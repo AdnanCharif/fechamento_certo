@@ -75,7 +75,7 @@ router.post('/auth/logout', (req,res) => {
 
 router.get('/postos/:usuarioid', (req,res) => {
     let usuarioId = req.params.usuarioid;
-    const sql = `select  u.nome as nome_usuario
+    const sql = `select p.posto_id as posto_id, p.nome as nome_posto, u.nome as nome_usuario
                   from postos_usuarios pu
                   inner join postos p
                   on pu.posto_id = p.posto_id
@@ -99,7 +99,7 @@ router.get('/postos/:usuarioid', (req,res) => {
 
 router.get('/postos/:id/usuarios', (req, res) => {
   let postoId = req.params.id;
-  const sql = `select u.nome, u.email, u.created_at
+  const sql = `select u.usuario_id, u.nome, u.email, u.created_at
               from postos_usuarios pu
               inner join postos p
               on pu.posto_id = p.posto_id

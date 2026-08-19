@@ -1,12 +1,56 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fechamento Certo</title>
+  <meta charset="UTF-8">
+  <title>Teste - Une Caixas</title>
 </head>
 <body>
-    Fechamento certo
-</body>
 
+  <!-- TELA DE LOGIN -->
+  <div id="login-section">
+    <h2>Login</h2>
+    <label>Email:</label><br>
+    <input type="text" id="login-email"><br>
+    <label>Senha:</label><br>
+    <input type="password" id="login-senha"><br>
+    <button onclick="fazerLogin()">Entrar</button>
+    <p id="login-erro" style="color:red;"></p>
+  </div>
+
+  <!-- TELA PRINCIPAL (só aparece depois do login) -->
+  <div id="app-section" style="display:none;">
+    <p>Logado como: <span id="usuario-logado"></span>
+      <button onclick="fazerLogout()">Sair</button>
+    </p>
+
+    <h2>Meus Postos</h2>
+    <table border="1" id="tabela-postos">
+      <thead>
+        <tr><th>Posto ID</th><th>Nome do Posto</th><th>Ação</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <h2>Usuários do posto selecionado: <span id="posto-selecionado">nenhum</span></h2>
+
+    <table border="1" id="tabela-usuarios">
+      <thead>
+        <tr><th>ID</th><th>Nome</th><th>Email</th><th>Ação</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <h3>Adicionar usuário a este posto</h3>
+    <label>Nome:</label><br>
+    <input type="text" id="novo-nome"><br>
+    <label>Email:</label><br>
+    <input type="text" id="novo-email"><br>
+    <label>Senha:</label><br>
+    <input type="text" id="novo-senha"><br>
+    <button onclick="adicionarUsuario()">Adicionar</button>
+    <p id="add-erro" style="color:red;"></p>
+  </div>
+
+  <script src="script.js"></script>
+</body>
 </html>
