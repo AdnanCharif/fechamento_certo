@@ -43,6 +43,25 @@ router.get('/postos/:usuarioid', (req,res) => {
 //Usuários
 
 router.get('/postos/:id/usuarios', (req, res) => {
+  let postoId = req.params.id;
+  const sql = `select u.nome, u.email, u.created_at
+              from postos_usuarios pu
+              inner join postos p
+              on pu.posto_id = p.posto_id
+              inner join usuarios u
+              on pu.usuario_id = u.usuario_id
+              where p.posto_id = $1;`;
+  const values = [postoId];
+
+  const pool = req.app.get('db');
+  pool.query(sql, values)
+      .then(result => {
+          res.json(result.rows);
+      })
+      .catch(err => {
+          console.error('Erro ao buscar usuários do posto:', err);
+          res.status(500).json({ error: 'Erro ao buscar usuários do posto' });
+      });
 
 });
 
