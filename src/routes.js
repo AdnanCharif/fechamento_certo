@@ -273,12 +273,43 @@ router.put('/usuarios/:id', async (req, res) => {
 
 //Empresas
 
-router.get('/postos/empresas/me', (req, res) => {
+router.get('/postos/empresas/:posto_id', async (req, res) => {
+    const postoId = req.params.posto_id;
+    let sql = `select e.empresa_id, e.nome, e.cnpj, e.tipo, e.created_at
+                from postos p
+                inner join empresas e
+                on p.posto_id = e.posto_id
+                where p.posto_id = $1`;
+    let values = [postoId];
 
+    const pool = req.app.get('db');
+    try {
+        const result = await pool.query(sql, values);
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Erro ao buscar empresas do posto:', err);
+        res.status(500).json({ error: 'Erro ao buscar empresas do posto' });
+    }
 });
 
-router.put('/empresas/:id', (req, res) => {
-
+router.put('/empresas/:id', async (req, res) => {
+    const empresaId = req.params.id;
+    const { nome, cnpj, tipo } = req.body;
+    
+    const pool = req.app.get('db');
+    const sql = `
+        UPDATE empresas
+        SET nome = $1, cnpj = $2, tipo = $3
+        WHERE empresa_id = $4;
+    `;
+    const values = [nome, cnpj, tipo, empresaId];
+    try {
+        await pool.query(sql, values);
+        res.json({ message: 'Empresa editada com sucesso' });
+    } catch (err) {
+        console.error('Erro ao editar empresa:', err);
+        res.status(500).json({ error: 'Erro ao editar empresa' });
+    }
 });
 
 
