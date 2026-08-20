@@ -209,12 +209,65 @@ router.delete('/postos/:id/usuarios/:usuarioId', async (req, res) => {
   }
 });
 
-router.get('/usuarios/me', (req, res) => {
+router.get('/usuarios/:id', (req, res) => {
+    let userId = req.params.id;
+    const sql = `SELECT usuario_id, nome, email, created_at
+                 FROM usuarios
+                 WHERE usuario_id = $1;`;
+    const values = [userId];
 
+    const pool = req.app.get('db');
+    pool.query(sql, values)
+        .then(result => {
+            res.json(result.rows[0]);
+        })
+        .catch(err => {
+            console.error('Erro ao buscar usuário:', err);
+            res.status(500).json({ error: 'Erro ao buscar usuário' });
+        });
 });
 
-router.put('/usuarios/me', (req, res) => {
+router.put('/usuarios/:id', async (req, res) => {
+    const userId = req.params.id;
+    const { nome, email, senha } = req.body;
 
+    const pool = req.app.get('db');
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // Atualiza nome e email
+        const updateUsuario = `
+            UPDATE usuarios
+            SET nome = $1, email = $2
+            WHERE usuario_id = $3;
+        `;
+        await client.query(updateUsuario, [nome, email, userId]);
+        
+        // Se a senha foi fornecida, atualiza também
+        if (senha) {
+            const senhaHash = await bcrypt.hash(senha, 10);
+            const updateSenha = `
+                UPDATE usuarios
+                SET senha = $1
+                WHERE usuario_id = $2;
+            `;
+            await client.query(updateSenha, [senhaHash, userId]);
+        }
+
+        await client.query('COMMIT');
+
+        res.json({
+            message: 'Usuário editado com sucesso',
+        });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Erro ao editar usuário:', err);
+        res.status(500).json({ error: 'Erro ao editar usuário' });
+    } finally {
+        client.release();
+    }
 });
 
 
