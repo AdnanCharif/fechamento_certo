@@ -315,16 +315,69 @@ router.put('/empresas/:id', async (req, res) => {
 
 //Máquinas
 
-router.get('/postos/:id/maquinas', (req, res) => {
+router.get('/postos/:id/maquinas', async (req, res) => {
+    const postoId = req.params.id;
 
+    let sql = `select m.maquina_id, m.nome as nome_maquina, e.nome as           nome_empresa, m.ativo, m.created_at
+    from empresas e 
+    inner join maquinas m
+    on e.empresa_id = m.empresa_id
+    inner join postos p
+    on e.posto_id = p.posto_id
+    where p.posto_id = $1;`;
+
+    let values = [postoId];
+
+    const pool = req.app.get('db');
+
+    try {
+        const result = await pool.query(sql, values);
+        res.json(result.rows);
+    }catch(err){
+        console.error('Erro ao buscar empresas do posto:', err);
+        res.status(500).json({ error: 'Erro ao buscar empresas do posto' });
+    }
 });
 
-router.post('/maquinas', (req, res) => {
+router.post('/maquinas', async (req, res) => {
+    const {empresa_id, nome} = req.body;
 
+    const sql = `insert into maquinas(empresa_id, nome) 
+                values ($1, $2)`;
+
+    let values = [empresa_id, nome];
+
+    const pool = req.app.get('db');
+
+    try {
+        await pool.query(sql,values);
+        res.json({ message: 'Máquina adicionada com sucesso'});
+    }catch(err) {
+        console.error('Erro ao adicionar máquina:', err);
+        res.status(500).json({ error: 'Erro ao adicionar máquina'});
+    };
 });
 
-router.get('/maquinas/:id', (req, res) => {
+router.get('/maquinas/:id', async (req, res) => {
+    const maquinaId = req.params.id
 
+    let sql = `select m.maquina_id, m.nome, e.nome, m.ativo, m.created_at
+                from empresas e
+                inner join maquinas m
+                on m.empresa_id = e.empresa_id
+                where m.maquina_id = $1`;
+    
+    let values = [maquinaId];
+
+    const pool = req.app.get('db');
+
+    try {
+        const result = await pool.query(sql, values);
+        res.json(result.rows);
+    }catch(err) {
+        console.error('Erro ao listar máquina:', err);
+        res.status(500).json({ error: 'Erro ao listar máquina'});
+    };
 });
 
 
