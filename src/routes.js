@@ -402,6 +402,24 @@ router.put('/maquinas', async (req, res) => {
     };
 });
 
+router.delete('/maquinas/:id', async (req, res) => {
+    const maquinaId = req.params.id;
+
+    let sql = `delete from maquinas where maquina_id = $1`;
+
+    let values = [maquinaId];
+
+    const pool = req.app.get('db');
+
+    try{
+        await pool.query(sql, values);
+        res.json({"message": "Maquina excluida com sucesso"});
+    }catch(err){
+        console.error("Erro ao excluir a maquina:",err);
+        res.status(500).json({erroe: 'Erro ao excluir a maquina'});
+    };
+});
+
 
 //Operadores
 
