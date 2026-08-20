@@ -420,9 +420,49 @@ router.delete('/maquinas/:id', async (req, res) => {
     };
 });
 
+router.patch('/maquinas/:id', async (req, res) => {
+    const maquinaId = req.params.id;
+    const { ativo } = req.body;
+
+    const sql = `UPDATE maquinas SET ativo = $1 WHERE maquina_id = $2`;
+    const values = [ativo, maquinaId];
+
+    const pool = req.app.get('db');
+
+    try {
+        await pool.query(sql, values);
+        res.json({ message: 'Status da máquina atualizado com sucesso' });
+    } catch (err) {
+        console.error('Erro ao atualizar status da máquina:', err);
+        res.status(500).json({ error: 'Erro ao atualizar status da máquina' });
+    }
+});
+
 
 //Operadores
+router.get('/operadores/:posto_id', async (req, res) => {
+    const postoId = req.params.posto_id;
 
+    let sql = `select o.operador_id, o.nome as nome_operador, e.nome as nome_empresa, o.ativo, o.created_at
+                from empresas e
+                inner join operadores o
+                on e.empresa_id = o.empresa_id
+                inner join postos p
+                on p.posto_id = e.posto_id
+                where p.posto_id = $1;`;
+
+    let values = [postoId];
+
+    const pool = req.app.get('db');
+
+    try {
+        const result = await pool.query(sql, values);
+        res.json(result.rows);
+    }catch(err) {
+        console.error('Erro ao listar operadores do posto:', err);
+        res.status(500).json({ error: 'Erro ao listar operadores do posto'});
+    };
+});
 
 //Fechamentos
 
