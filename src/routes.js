@@ -380,9 +380,27 @@ router.get('/maquinas/:id', async (req, res) => {
     };
 });
 
-router.put('/maquinas/:id', async (req, res) => {
+router.put('/maquinas', async (req, res) => {
+    const {maquina_id, empresa_id, nome, ativo} = req.body;
 
-})
+    let sql = `update maquinas set 
+    empresa_id = $2, 
+    nome = $3, 
+    ativo = $4 
+    where maquina_id = $1`;
+
+    let values = [maquina_id, empresa_id, nome, ativo];
+
+    const pool = req.app.get('db');
+
+    try {
+        await pool.query(sql, values);
+        res.json({"message": "Máquina alterada com sucesso"});
+    }catch(err) {
+        console.error('Erro ao editar maquina:',err);
+        res.status(500).json({error: 'Erro ao editar maquina'});
+    };
+});
 
 
 //Operadores
