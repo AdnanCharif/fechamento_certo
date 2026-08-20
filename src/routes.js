@@ -361,7 +361,7 @@ router.post('/maquinas', async (req, res) => {
 router.get('/maquinas/:id', async (req, res) => {
     const maquinaId = req.params.id
 
-    let sql = `select m.maquina_id, m.nome, e.nome, m.ativo, m.created_at
+    let sql = `select m.maquina_id, m.nome as nome_maquina, e.nome as           nome_empresa, m.ativo, m.created_at
                 from empresas e
                 inner join maquinas m
                 on m.empresa_id = e.empresa_id
@@ -379,6 +379,10 @@ router.get('/maquinas/:id', async (req, res) => {
         res.status(500).json({ error: 'Erro ao listar máquina'});
     };
 });
+
+router.put('/maquinas/:id', async (req, res) => {
+
+})
 
 
 //Operadores
