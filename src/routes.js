@@ -522,7 +522,24 @@ router.put('/operadores/:id', async (req, res) => {
     };
 });
 
-//editar e desativar
+//desativar operador
+router.patch('/operador/:id', async (req, res) => {
+    const operadorId = req.params.id;
+    const { ativo }  = req.body;
+
+    let sql = `update operadores set ativo = $1 where $2`;
+
+    let values = [ativo, operadorId];
+
+    const pool = await req.app.get('db');
+    try{
+        await pool.query(sql, values);
+        res.json({message: 'Status do operador alterado com sucesso'});
+    } catch(err) {
+        console.error('Erro ao mudar o status operador', err);
+        res.status(500).json({error:'Erro ao mudar o status do operador'})
+    }
+})
 
 //Fechamentos
 
