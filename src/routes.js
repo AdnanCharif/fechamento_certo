@@ -440,8 +440,8 @@ router.patch('/maquinas/:id', async (req, res) => {
 
 
 //Operadores
-router.get('/operadores/:posto_id', async (req, res) => {
-    const postoId = req.params.posto_id;
+router.get('/operadores/posto/:id', async (req, res) => {
+    const postoId = req.params.id;
 
     let sql = `select o.operador_id, o.nome as nome_operador, e.nome as nome_empresa, o.ativo, o.created_at
                 from empresas e
@@ -463,6 +463,66 @@ router.get('/operadores/:posto_id', async (req, res) => {
         res.status(500).json({ error: 'Erro ao listar operadores do posto'});
     };
 });
+
+router.post('/operadores', async (req,res) => {
+    const { empresa_id, nome } = req.body;
+
+    let sql = `insert into operadores (empresa_id, nome) values
+                ($1, $2)`;
+
+    let values = [empresa_id, nome];
+
+    const pool = req.app.get('db');
+    try {
+        await pool.query(sql,values);
+        res.json({message: 'Operador adicionado com sucesso'});
+    }catch(err) { 
+        console.error('Erro ao adicionar operador à empresa:', err);
+        res.status(500).json({ error: 'Erro ao adicionar operador ao posto'});
+    };
+    
+});
+
+router.get('/operadores/nome', async (req, res) => {
+    const { nome } = req.body;
+    
+    let sql = `select * from operadores where nome = $1`;
+
+    let values = [nome];
+
+    const pool = req.app.get('db');
+
+    try{ 
+        const result = await pool.query(sql, values);
+        res.json(result.rows);
+    } catch(err) {
+        console.error('Erro ao buscar operador', err);
+        res.status(500).json({error: 'Erro ao buscar operador'});
+    };
+});
+
+router.put('/operadores/:id', async (req, res) => {
+    const operadorId = req.params.id;
+    const {empresa_id, nome} = req.body;
+    
+    let sql = `update operadores set 
+                empresa_id = $1, 
+                nome = $2 
+                where operador_id = $3`;
+
+    let values = [empresa_id, nome, operadorId];
+
+    const pool = await req.app.get('db');
+    try{
+        await pool.query(sql, values);
+        res.json({message: 'Operador editado com sucesso'});
+    } catch(err) {
+        console.error('Erro ao editar operador', err);
+        res.status(500).json({error:'Erro ao editar operador'});
+    };
+});
+
+//editar e desativar
 
 //Fechamentos
 
