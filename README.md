@@ -153,29 +153,3 @@ O posto e a loja de conveniência são CNPJs diferentes. Quando o cliente abaste
 | Fechamento de caixa | ✅ | ✅ | ✅ (com log) | ❌ (não se apaga, só arquiva) |
 | Divergências/Observações | ✅ | ✅ | ✅ | ✅ |
 
----
-
-## 9. Sugestão de telas para o protótipo (13 telas)
-
-1. Login
-2. Dashboard (visão geral do mês: sobra/falta acumulada por CNPJ)
-3. Novo Fechamento (seleção de data)
-4. Input de valores por máquina (esperado x recebido)
-5. Input de dinheiro físico
-6. Input de separação por CNPJ (posto x loja)
-7. Tela de cálculo/resumo do fechamento (totais)
-8. Tela de divergência detalhada (por máquina/turno)
-9. Tela de associação de divergência a operador
-10. Tela de observações/anotações
-11. Histórico de fechamentos (lista por data)
-12. Detalhe de um fechamento salvo (consulta)
-13. Cadastro de máquinas e operadores (tela de configuração)
-
----
-
-## Próximos passos sugeridos para a equipe
-- Validar com a Marisa (persona real, sua própria vivência) exatamente quais números ela hoje precisa somar na mão — isso define os campos de input da tela 4/5/6.
-- Levar o storyboard para o Figma/Balsamiq e desenhar as 13 telas.
-- Priorizar no protótipo o fluxo de **input rápido de valores + cálculo automático de sobra/falta** — é o coração da solução.
-
-# une-caixas
