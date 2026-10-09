@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS "usuarios" (
     "email"       VARCHAR(255) NOT NULL UNIQUE,
     "senha"       VARCHAR(255) NOT NULL, -- hash, nunca texto puro
     "created_at"  TIMESTAMP NOT NULL DEFAULT now(),
-    "ativo" BOOLEAN NOT NULL DEFAULT true
+    "ativo" BOOLEAN NOT NULL DEFAULT true,
     PRIMARY KEY ("usuario_id")
 );
 

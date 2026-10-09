@@ -1,56 +1,47 @@
-<!DOCTYPE html>
-<html lang="pt-br">
+<!doctype html>
+<html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <title>Teste - Une Caixas</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fechamento Certo</title>
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+  <section id="login-screen" class="login-screen">
+    <form id="login-form" class="login-card">
+      <div class="login-mark" aria-hidden="true">⛽</div>
+      <h1>Fechamento Certo</h1>
+      <p class="login-subtitle">Sistema de Conciliação e Fechamento de Caixa</p>
+      <label for="login-email">E-mail do Gestor</label>
+      <input id="login-email" type="email" autocomplete="username" required placeholder="seuemail@empresa.com.br">
+      <label for="login-senha">Senha</label>
+      <input id="login-senha" type="password" autocomplete="current-password" required placeholder="Sua senha">
+      <div class="login-options"><label class="check-label"><input id="lembrar-me" type="checkbox"> Lembrar-me</label><a href="mailto:suporte@fechamentocerto.com">Fale com o suporte</a></div>
+      <button class="primary full-width" type="submit">Entrar no Sistema</button>
+      <p id="login-error" class="form-error" role="alert"></p>
+      <p class="login-help">Problemas para acessar? <a href="mailto:suporte@fechamentocerto.com">Fale com o suporte</a></p>
+    </form>
+  </section>
 
-  <!-- TELA DE LOGIN -->
-  <div id="login-section">
-    <h2>Login</h2>
-    <label>Email:</label><br>
-    <input type="text" id="login-email"><br>
-    <label>Senha:</label><br>
-    <input type="password" id="login-senha"><br>
-    <button onclick="fazerLogin()">Entrar</button>
-    <p id="login-erro" style="color:red;"></p>
+  <div id="application" class="application" hidden>
+    <aside class="sidebar">
+      <a href="#dashboard" class="brand" data-page="dashboard"><span class="brand-icon">⛽</span><span><strong>Fechamento Certo</strong><small>POSTO &amp; CONVENIÊNCIA</small></span></a>
+      <nav id="main-nav" class="main-nav" aria-label="Navegação principal">
+        <button data-page="dashboard" class="nav-link active"><span>▦</span>Dashboard</button>
+        <button data-page="closing" class="nav-link"><span>⊕</span>Novo Fechamento</button>
+        <button data-page="history" class="nav-link"><span>◴</span>Histórico</button>
+        <button data-page="machines" class="nav-link"><span>▤</span>Máquinas</button>
+        <button data-page="operators" class="nav-link" id="operators-nav"><span>⚙</span>Operadores</button>
+        <button data-page="settings" class="nav-link"><span>⚙</span>Configurações</button>
+      </nav>
+      <button class="account-card" data-page="profile"><span class="avatar" id="account-avatar">G</span><span><strong id="account-name">Gestor</strong><small>Gerente Geral</small></span></button>
+      <button id="logout-button" class="logout-link">Sair da conta</button>
+    </aside>
+    <main class="main-content">
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+      <div id="page-root"></div>
+    </main>
   </div>
-
-  <!-- TELA PRINCIPAL (só aparece depois do login) -->
-  <div id="app-section" style="display:none;">
-    <p>Logado como: <span id="usuario-logado"></span>
-      <button onclick="fazerLogout()">Sair</button>
-    </p>
-
-    <h2>Meus Postos</h2>
-    <table border="1" id="tabela-postos">
-      <thead>
-        <tr><th>Posto ID</th><th>Nome do Posto</th><th>Ação</th></tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-
-    <h2>Usuários do posto selecionado: <span id="posto-selecionado">nenhum</span></h2>
-
-    <table border="1" id="tabela-usuarios">
-      <thead>
-        <tr><th>ID</th><th>Nome</th><th>Email</th><th>Ação</th></tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-
-    <h3>Adicionar usuário a este posto</h3>
-    <label>Nome:</label><br>
-    <input type="text" id="novo-nome"><br>
-    <label>Email:</label><br>
-    <input type="text" id="novo-email"><br>
-    <label>Senha:</label><br>
-    <input type="text" id="novo-senha"><br>
-    <button onclick="adicionarUsuario()">Adicionar</button>
-    <p id="add-erro" style="color:red;"></p>
-  </div>
-
-  <script src="script.js"></script>
+  <script src="/script.js" defer></script>
 </body>
 </html>

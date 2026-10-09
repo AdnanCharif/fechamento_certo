@@ -1,0 +1,24 @@
+// Exemplo de variabilidade da LPS: o produto pode ativar/desativar recursos e
+// ajustar o limite financeiro sem alterar o fluxo principal da aplicação.
+export class ProductVariability {
+  constructor(options = {}) {
+    this.operatorManagement = options.operatorManagement ?? (process.env.FEATURE_OPERATOR_MANAGEMENT !== 'false');
+    this.divergenceAlertLimit = Number(options.divergenceAlertLimit ?? process.env.DIVERGENCE_ALERT_LIMIT ?? 100);
+    if (!Number.isFinite(this.divergenceAlertLimit) || this.divergenceAlertLimit < 0) {
+      throw new Error('DIVERGENCE_ALERT_LIMIT precisa ser um número maior ou igual a zero');
+    }
+  }
+
+  isDivergenceCritical(value) { return this.divergenceAlertLimit > 0 && Math.abs(Number(value)) >= this.divergenceAlertLimit; }
+
+  toJSON() {
+    return {
+      pontosDeVariacao: {
+        gestaoDeOperadores: { habilitado: this.operatorManagement },
+        alertaDeDivergencia: { habilitado: this.divergenceAlertLimit > 0, limite: this.divergenceAlertLimit },
+      },
+    };
+  }
+}
+
+export const productVariability = new ProductVariability();
