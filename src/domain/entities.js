@@ -36,6 +36,16 @@ export class Fechamento {
   }
   validar() { return Boolean(this.posto_id && this.usuario_id && this.data_referencia); }
   calcularDiferencaDinheiro() { return Number(this.valor_dinheiro_declarado || 0) - Number(this.valor_dinheiro_esperado || 0); }
+  // Com divergência quando o dinheiro não bate ou alguma empresa tem diferença nos cartões.
+  definirStatus(empresaDivergente) {
+    this.status = empresaDivergente || this.calcularDiferencaDinheiro() !== 0 ? 'com_divergencia' : 'ok';
+    return this.status;
+  }
+  // Dinheiro e lançamentos de máquinas precisam ser números não negativos (na criação e na edição).
+  static valoresValidos({ valor_dinheiro_esperado, valor_dinheiro_declarado, maquinas }) {
+    return Array.isArray(maquinas) && [valor_dinheiro_esperado, valor_dinheiro_declarado, ...maquinas.flatMap((m) => [m.valor_esperado, m.valor_recebido])]
+      .every((valor) => Number.isFinite(Number(valor)) && Number(valor) >= 0);
+  }
 }
 
 export class FechamentoMaquina {

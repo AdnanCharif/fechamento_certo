@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import { JwtTokenService } from './patterns/singleton/JwtTokenService.js';
 import { CadastroEmpresa, CadastroMaquina, CadastroOperador, CadastroPosto } from './patterns/template/Cadastros.js';
 import { productVariability } from './config/productVariability.js';
+import { Fechamento } from './domain/entities.js';
 import { ErroHttp, rota } from './lib/http.js';
 import { transacao } from './lib/transacao.js';
 import { listar, cadastrar, alterarAtivo, excluirDoFechamento } from './lib/fabricasDeRotas.js';
@@ -413,9 +414,7 @@ router.get('/postos/:postoId/fechamentos', validarAcessoPosto, listar('Erro ao l
 
 router.post('/postos/:postoId/fechamentos', validarAcessoPosto, rota('Erro ao salvar fechamento', async (req, res) => {
     const { data_referencia, valor_dinheiro_esperado, valor_dinheiro_declarado, maquinas } = req.body;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(data_referencia || '') || !Array.isArray(maquinas)
-        || ![valor_dinheiro_esperado, valor_dinheiro_declarado, ...maquinas.flatMap((m) => [m.valor_esperado, m.valor_recebido])]
-            .every((value) => Number.isFinite(Number(value)) && Number(value) >= 0)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data_referencia || '') || !Fechamento.valoresValidos(req.body)) {
         throw new ErroHttp(400, 'Informe data, valores não negativos e lançamentos de máquinas válidos');
     }
     const criado = await transacao(req.app.get('db'), async (client) => {
@@ -449,9 +448,10 @@ router.post('/postos/:postoId/fechamentos', validarAcessoPosto, rota('Erro ao sa
             }
         }
         for (const [empresaId, total] of totals) await client.query(`INSERT INTO fechamento_empresa (fechamento_id, empresa_id, valor_esperado, valor_recebido) VALUES ($1, $2, $3, $4)`, [fechamentoId, empresaId, total.esperado, total.recebido]);
-        const cashDiff = Number(valor_dinheiro_declarado) - Number(valor_dinheiro_esperado);
+        const novoFechamento = new Fechamento(req.body);
+        const cashDiff = novoFechamento.calcularDiferencaDinheiro();
         if (cashDiff !== 0) await client.query('INSERT INTO divergencias (fechamento_id, valor_diferenca) VALUES ($1, $2)', [fechamentoId, cashDiff]);
-        const status = cashDiff !== 0 || [...totals.values()].some((t) => t.esperado !== t.recebido) ? 'com_divergencia' : 'ok';
+        const status = novoFechamento.definirStatus([...totals.values()].some((t) => t.esperado !== t.recebido));
         await client.query('UPDATE fechamentos SET status = $1, updated_at = now() WHERE fechamento_id = $2', [status, fechamentoId]);
         await registrarLog(client, fechamentoId, req.usuarioAutenticado.usuario_id, 'Criação de fechamento', 'status', null, status);
         return { fechamento_id: fechamentoId, status };
@@ -483,9 +483,7 @@ router.get('/postos/:postoId/fechamentos/:fechamentoId', validarAcessoPosto, rot
 // Edita valores do fechamento; cada campo alterado vira uma linha em logs_auditoria.
 router.put('/postos/:postoId/fechamentos/:fechamentoId', fechamentoEditavel, rota('Erro ao editar fechamento', async (req, res) => {
     const { valor_dinheiro_esperado, valor_dinheiro_declarado, maquinas = [] } = req.body;
-    if (!Array.isArray(maquinas)
-        || ![valor_dinheiro_esperado, valor_dinheiro_declarado, ...maquinas.flatMap((m) => [m.valor_esperado, m.valor_recebido])]
-            .every((value) => Number.isFinite(Number(value)) && Number(value) >= 0)) {
+    if (!Fechamento.valoresValidos({ ...req.body, maquinas })) {
         throw new ErroHttp(400, 'Informe valores não negativos para o dinheiro e para as máquinas');
     }
     const { fechamentoId } = req.params;
@@ -514,7 +512,7 @@ router.put('/postos/:postoId/fechamentos/:fechamentoId', fechamentoEditavel, rot
                   FROM fechamento_maquinas fm JOIN maquinas m USING (maquina_id) WHERE fm.fechamento_id = $1 GROUP BY m.empresa_id) t
             WHERE fe.fechamento_id = $1 AND fe.empresa_id = t.empresa_id`, [fechamentoId]);
         const empresaDivergente = await client.query('SELECT 1 FROM fechamento_empresa WHERE fechamento_id = $1 AND diferenca <> 0', [fechamentoId]);
-        const status = Number(valor_dinheiro_declarado) !== Number(valor_dinheiro_esperado) || empresaDivergente.rowCount ? 'com_divergencia' : 'ok';
+        const status = new Fechamento(req.body).definirStatus(empresaDivergente.rowCount > 0);
         if (status !== atual.status) alteracoes.push(['status', atual.status, status]);
         await client.query('UPDATE fechamentos SET status = $1, updated_at = now() WHERE fechamento_id = $2', [status, fechamentoId]);
         for (const [campo, anterior, novo] of alteracoes) {
