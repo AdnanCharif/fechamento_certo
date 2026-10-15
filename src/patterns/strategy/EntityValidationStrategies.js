@@ -1,4 +1,4 @@
-import { Empresa, Maquina, Operador } from '../../domain/entities.js';
+import { Empresa, Maquina, Operador, Posto } from '../../domain/entities.js';
 
 // Strategy: cada entidade aplica sua própria regra de validação substituível.
 export class EmpresaValidationStrategy {
@@ -11,4 +11,8 @@ export class MaquinaValidationStrategy {
 
 export class OperadorValidationStrategy {
   validate(data) { return new Operador(data).validar(); }
+}
+
+export class PostoValidationStrategy {
+  validate(data) { return new Posto(data).validar(); }
 }

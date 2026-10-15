@@ -2,7 +2,7 @@
 import { $, esc, sameId } from '../utils.js';
 import { api, endpoints, json } from '../api.js';
 import { state } from '../state.js';
-import { shell, dataTable, field, searchBox, notReady, toast, confirmAction, activePill } from '../components.js';
+import { shell, dataTable, field, searchBox, toast, confirmAction, activePill } from '../components.js';
 import { go, rerenderKeepingFocus } from '../router.js';
 import { loadContext, loadManagers } from '../context.js';
 
@@ -26,7 +26,6 @@ function renderEstablishmentForm() {
   const companyBlock = (type, title, label) => `<fieldset class="company-block"><legend>${title}</legend>${field(`CNPJ ${label}`, `<input name="cnpj_${type}" maxlength="18" placeholder="00.000.000/0000-00" data-mask="cnpj" value="${esc(company(type).cnpj || '')}">`)}${field('Razão Social', `<input name="nome_${type}" placeholder="Razão social" value="${esc(company(type).nome || '')}">`)}</fieldset>`;
   const managerOptions = state.managers.length ? state.managers : [{ usuario_id: state.user.usuario_id, nome: state.user.nome, email: state.user.email }];
   return `${shell(editing ? 'Editar Estabelecimento' : 'Cadastrar Estabelecimento', editing ? 'Atualize os dados do estabelecimento e das empresas vinculadas.' : 'Adicione um novo cliente e defina suas empresas vinculadas.', editing ? activePill(true) : '', `Administração › Clientes › ${editing ? `${esc(editing.nome_posto)} › Editar` : 'Novo'}`)}
-    ${notReady(`A rota <code>${editing ? 'PUT /postos/:id' : 'POST /postos'}</code> ainda não existe. As empresas (CNPJs) já são gravadas pelas rotas de empresas.`)}
     <form id="establishment-form" class="surface wide-form">
       <h2>Dados Gerais do Estabelecimento</h2>
       <div class="form-grid">

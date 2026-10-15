@@ -2,7 +2,7 @@
 import { esc, formatDate, signedMoney, sameId } from '../utils.js';
 import { api, endpoints, json } from '../api.js';
 import { state } from '../state.js';
-import { shell, sideForm, field, notReady, toast, confirmAction, divergenceOrigin, noteCard } from '../components.js';
+import { shell, sideForm, field, toast, confirmAction, divergenceOrigin, noteCard } from '../components.js';
 import { go, render } from '../router.js';
 import { loadClosingDetail, detailMissing } from './fechamentos.js';
 
@@ -18,7 +18,6 @@ function renderClosingNotes() {
       + field('Texto', `<textarea name="texto" rows="6" required placeholder="Ex.: conferido com o operador, foi engano no troco.">${esc(editing?.texto || '')}</textarea>`),
   });
   return `${shell('Observações do Fechamento', `${formatDate(data.fechamento.data_referencia)} · anotações para o contador e para o dono.`, '<button class="success" data-action="new-note">⊕ &nbsp;Nova Observação</button>', 'Histórico › Detalhes do Fechamento › Observações')}
-    ${notReady('As rotas de criar, editar e excluir observações ainda não existem; a listagem já vem do banco.')}
     <div class="split-layout"><section class="surface">${notes || '<p class="empty-state">Nenhuma observação registrada.</p>'}</section>${form}</div>
     <div class="form-actions"><button class="secondary" data-page="history-detail">← Voltar ao fechamento</button></div>`;
 }

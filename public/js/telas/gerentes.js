@@ -39,7 +39,7 @@ function renderManagerDetail() {
   return `${shell(`Perfil do Gerente: ${esc(manager.nome)}`, 'Consulte dados cadastrais e estabelecimentos associados.', `<button class="secondary" data-page="manager-form" data-id="${manager.usuario_id}">Editar Perfil</button>`, 'Administração › Gerentes › Detalhe')}
     <section class="surface profile-header"><span class="avatar large">${esc(manager.nome.trim()[0]?.toUpperCase() || 'G')}</span><div><h2>${esc(manager.nome)} <span class="pill green">Ativo</span></h2><p>Email: <b>${esc(manager.email)}</b> · Cadastrado em: <b>${formatDate(manager.created_at)}</b></p></div></section>
     <section class="surface"><div class="surface-heading"><h2>Estabelecimentos Vinculados</h2></div>${links || '<p class="helper">Nenhum vínculo.</p>'}
-      ${!isSelf && linkable.length ? `<form id="link-manager-form" class="inline-form">${field('Vincular novo posto', `<select name="posto_id">${linkable.map((post) => `<option value="${post.posto_id}">${esc(post.nome_posto)}</option>`).join('')}</select>`)}<button class="success">+ Vincular</button></form><p class="helper">Vincular gerente já cadastrado depende da rota <code>POST /postos/:id/usuarios/:usuarioId</code>, ainda pendente no backend.</p>` : ''}
+      ${!isSelf && linkable.length ? `<form id="link-manager-form" class="inline-form">${field('Vincular novo posto', `<select name="posto_id">${linkable.map((post) => `<option value="${post.posto_id}">${esc(post.nome_posto)}</option>`).join('')}</select>`)}<button class="success">+ Vincular</button></form>` : ''}
       ${isSelf ? '<p class="helper">Você não pode remover os próprios vínculos.</p>' : ''}</section>
     <div class="form-actions"><button class="secondary" data-page="managers">← Voltar</button></div>`;
 }

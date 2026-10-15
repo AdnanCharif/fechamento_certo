@@ -1,7 +1,7 @@
 import express from 'express';
 import bcrypt from 'bcrypt';
 import { JwtTokenService } from './patterns/singleton/JwtTokenService.js';
-import { CadastroEmpresa, CadastroMaquina, CadastroOperador } from './patterns/template/Cadastros.js';
+import { CadastroEmpresa, CadastroMaquina, CadastroOperador, CadastroPosto } from './patterns/template/Cadastros.js';
 import { productVariability } from './config/productVariability.js';
 
 const router = express.Router();
@@ -9,6 +9,7 @@ const tokenService = JwtTokenService.getInstance();
 const cadastroEmpresa = new CadastroEmpresa();
 const cadastroMaquina = new CadastroMaquina();
 const cadastroOperador = new CadastroOperador();
+const cadastroPosto = new CadastroPosto();
 
 function autenticar(req, res, next) {
   const authorization = req.headers.authorization || '';
@@ -108,7 +109,7 @@ router.get('/postos/:usuarioid', (req,res) => {
                   on pu.posto_id = p.posto_id
                   inner join usuarios u
                   on pu.usuario_id = u.usuario_id
-                  where u.usuario_id = $1;`;
+                  where u.usuario_id = $1 and p.ativo;`;
    const values = [usuarioId];
    
    const pool = req.app.get('db');
@@ -121,6 +122,48 @@ router.get('/postos/:usuarioid', (req,res) => {
            res.status(500).json({ error: 'Erro ao buscar postos do usuário' });
        });            
 }); 
+
+router.post('/postos', async (req, res) => {
+    // O gerente escolhido e quem cadastrou passam a ter acesso ao novo posto.
+    const usuarios = [req.body.usuario_id || req.usuarioAutenticado.usuario_id, req.usuarioAutenticado.usuario_id];
+    try {
+        const result = await cadastroPosto.execute(req.app.get('db'), { ...req.body, usuarios });
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        if (err.code === '23503') return res.status(400).json({ error: 'Gerente responsável não encontrado' });
+        res.status(err.status || 500).json({ error: err.status ? err.message : 'Erro ao cadastrar estabelecimento' });
+    }
+});
+
+router.put('/postos/:postoId', validarAcessoPosto, async (req, res) => {
+    const { nome, endereco } = req.body;
+    if (!nome?.trim()) return res.status(400).json({ error: 'Nome do estabelecimento é obrigatório' });
+    try {
+        // Sem endereço no corpo, mantém o endereço atual.
+        const result = await req.app.get('db').query(
+            'UPDATE postos SET nome = $1, endereco = COALESCE($2, endereco) WHERE posto_id = $3 RETURNING posto_id, nome, endereco, ativo',
+            [nome.trim(), endereco?.trim() || null, req.params.postoId],
+        );
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('Erro ao editar estabelecimento:', err);
+        res.status(500).json({ error: 'Erro ao editar estabelecimento' });
+    }
+});
+
+// Inativa o posto: some da lista dos gerentes e deixa de aceitar fechamentos, mas o histórico fica no banco.
+router.delete('/postos/:postoId', validarAcessoPosto, async (req, res) => {
+    try {
+        const result = await req.app.get('db').query(
+            'UPDATE postos SET ativo = false WHERE posto_id = $1 RETURNING posto_id, nome, ativo',
+            [req.params.postoId],
+        );
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('Erro ao inativar estabelecimento:', err);
+        res.status(500).json({ error: 'Erro ao inativar estabelecimento' });
+    }
+});
 
 //Usuários
 
@@ -234,6 +277,24 @@ router.delete('/postos/:id/usuarios/:usuarioId', async (req, res) => {
   } finally {
       client.release();
   }
+});
+
+// Vincula um gerente já cadastrado e reativa o acesso dele, caso tenha sido inativado ao perder o último vínculo.
+router.post('/postos/:postoId/usuarios/:usuarioId', validarAcessoPosto, async (req, res) => {
+    try {
+        const result = await req.app.get('db').query(
+            `WITH vinculo AS (
+                INSERT INTO postos_usuarios (posto_id, usuario_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
+            )
+            UPDATE usuarios SET ativo = true WHERE usuario_id = $2 RETURNING usuario_id`,
+            [req.params.postoId, req.params.usuarioId],
+        );
+        res.status(201).json({ usuario_id: result.rows[0].usuario_id, posto_id: Number(req.params.postoId) });
+    } catch (err) {
+        if (err.code === '23503') return res.status(404).json({ error: 'Usuário não encontrado' });
+        console.error('Erro ao vincular usuário ao posto:', err);
+        res.status(500).json({ error: 'Erro ao vincular usuário ao posto' });
+    }
 });
 
 router.get('/usuarios/:id', (req, res) => {
@@ -615,7 +676,7 @@ async function validarAcessoPosto(req, res, next) {
     const postoId = req.params.postoId || req.body.posto_id;
     try {
         const result = await req.app.get('db').query(
-            'SELECT 1 FROM postos_usuarios WHERE posto_id = $1 AND usuario_id = $2',
+            'SELECT 1 FROM postos_usuarios JOIN postos USING (posto_id) WHERE posto_id = $1 AND usuario_id = $2 AND ativo',
             [postoId, req.usuarioAutenticado.usuario_id],
         );
         if (!result.rowCount) return res.status(403).json({ error: 'Usuário sem acesso a este posto' });
@@ -747,7 +808,7 @@ router.get('/postos/:postoId/fechamentos/:fechamentoId', validarAcessoPosto, asy
                 LEFT JOIN operadores o USING (operador_id) WHERE fm.fechamento_id = $1 ORDER BY m.nome`, [req.params.fechamentoId]),
             pool.query(`SELECT ob.observacao_id, ob.texto, ob.created_at, u.nome AS usuario_nome FROM observacoes ob
                 JOIN usuarios u USING (usuario_id) WHERE ob.fechamento_id = $1 ORDER BY ob.created_at`, [req.params.fechamentoId]),
-            pool.query(`SELECT d.divergencia_id, d.valor_diferenca, d.status, fm.maquina_id, m.nome AS maquina_nome
+            pool.query(`SELECT d.divergencia_id, d.valor_diferenca, d.status, d.operador_id, fm.maquina_id, m.nome AS maquina_nome
                 FROM divergencias d LEFT JOIN fechamento_maquinas fm USING (fechamento_maquina_id)
                 LEFT JOIN maquinas m USING (maquina_id) WHERE d.fechamento_id = $1`, [req.params.fechamentoId]),
         ]);
@@ -755,6 +816,210 @@ router.get('/postos/:postoId/fechamentos/:fechamentoId', validarAcessoPosto, asy
     } catch (err) {
         console.error('Erro ao carregar detalhe do fechamento:', err);
         res.status(500).json({ error: 'Erro ao carregar detalhe do fechamento' });
+    }
+});
+
+// Fechamento arquivado só pode ser consultado: bloqueia edição dele, das divergências e das observações.
+async function validarFechamentoEditavel(req, res, next) {
+    try {
+        const result = await req.app.get('db').query(
+            'SELECT status FROM fechamentos WHERE fechamento_id = $1 AND posto_id = $2',
+            [req.params.fechamentoId, req.params.postoId],
+        );
+        if (!result.rowCount) return res.status(404).json({ error: 'Fechamento não encontrado' });
+        if (result.rows[0].status === 'arquivado') return res.status(409).json({ error: 'Fechamento arquivado não pode ser alterado' });
+        next();
+    } catch (err) {
+        console.error('Erro ao validar fechamento:', err);
+        res.status(500).json({ error: 'Erro ao validar fechamento' });
+    }
+}
+
+const registrarLog = (client, fechamentoId, usuarioId, acao, campo, anterior, novo) => client.query(
+    'INSERT INTO logs_auditoria (fechamento_id, usuario_id, acao, campo_alterado, valor_anterior, valor_novo) VALUES ($1, $2, $3, $4, $5, $6)',
+    [fechamentoId, usuarioId, acao, campo.slice(0, 255), anterior, novo],
+);
+
+// Edita valores do fechamento; cada campo alterado vira uma linha em logs_auditoria.
+router.put('/postos/:postoId/fechamentos/:fechamentoId', validarAcessoPosto, validarFechamentoEditavel, async (req, res) => {
+    const { valor_dinheiro_esperado, valor_dinheiro_declarado, maquinas = [] } = req.body;
+    if (!Array.isArray(maquinas)
+        || ![valor_dinheiro_esperado, valor_dinheiro_declarado, ...maquinas.flatMap((m) => [m.valor_esperado, m.valor_recebido])]
+            .every((value) => Number.isFinite(Number(value)) && Number(value) >= 0)) {
+        return res.status(400).json({ error: 'Informe valores não negativos para o dinheiro e para as máquinas' });
+    }
+    const { fechamentoId } = req.params;
+    const client = await req.app.get('db').connect();
+    try {
+        await client.query('BEGIN');
+        const atual = (await client.query('SELECT valor_dinheiro_esperado, valor_dinheiro_declarado, status FROM fechamentos WHERE fechamento_id = $1 FOR UPDATE', [fechamentoId])).rows[0];
+        const alteracoes = [];
+        const comparar = (campo, anterior, novo) => {
+            if (Number(anterior) !== Number(novo)) alteracoes.push([campo, anterior, Number(novo).toFixed(2)]);
+        };
+        comparar('valor_dinheiro_esperado', atual.valor_dinheiro_esperado, valor_dinheiro_esperado);
+        comparar('valor_dinheiro_declarado', atual.valor_dinheiro_declarado, valor_dinheiro_declarado);
+        await client.query('UPDATE fechamentos SET valor_dinheiro_esperado = $1, valor_dinheiro_declarado = $2 WHERE fechamento_id = $3',
+            [valor_dinheiro_esperado, valor_dinheiro_declarado, fechamentoId]);
+        for (const item of maquinas) {
+            const linha = await client.query(`SELECT fm.valor_esperado, fm.valor_recebido, m.nome FROM fechamento_maquinas fm
+                JOIN maquinas m USING (maquina_id) WHERE fm.fechamento_maquina_id = $1 AND fm.fechamento_id = $2`, [item.fechamento_maquina_id, fechamentoId]);
+            if (!linha.rowCount) throw Object.assign(new Error('Lançamento de máquina não pertence a este fechamento'), { status: 400 });
+            comparar(`${linha.rows[0].nome}: valor_esperado`, linha.rows[0].valor_esperado, item.valor_esperado);
+            comparar(`${linha.rows[0].nome}: valor_recebido`, linha.rows[0].valor_recebido, item.valor_recebido);
+            await client.query('UPDATE fechamento_maquinas SET valor_esperado = $1, valor_recebido = $2 WHERE fechamento_maquina_id = $3',
+                [item.valor_esperado, item.valor_recebido, item.fechamento_maquina_id]);
+        }
+        // Recalcula o resumo por empresa a partir das máquinas e, com ele, o status.
+        await client.query(`UPDATE fechamento_empresa fe SET valor_esperado = t.esperado, valor_recebido = t.recebido
+            FROM (SELECT m.empresa_id, SUM(fm.valor_esperado) AS esperado, SUM(fm.valor_recebido) AS recebido
+                  FROM fechamento_maquinas fm JOIN maquinas m USING (maquina_id) WHERE fm.fechamento_id = $1 GROUP BY m.empresa_id) t
+            WHERE fe.fechamento_id = $1 AND fe.empresa_id = t.empresa_id`, [fechamentoId]);
+        const empresaDivergente = await client.query('SELECT 1 FROM fechamento_empresa WHERE fechamento_id = $1 AND diferenca <> 0', [fechamentoId]);
+        const status = Number(valor_dinheiro_declarado) !== Number(valor_dinheiro_esperado) || empresaDivergente.rowCount ? 'com_divergencia' : 'ok';
+        if (status !== atual.status) alteracoes.push(['status', atual.status, status]);
+        await client.query('UPDATE fechamentos SET status = $1, updated_at = now() WHERE fechamento_id = $2', [status, fechamentoId]);
+        for (const [campo, anterior, novo] of alteracoes) {
+            await registrarLog(client, fechamentoId, req.usuarioAutenticado.usuario_id, 'Edição de fechamento', campo, anterior, novo);
+        }
+        await client.query('COMMIT');
+        res.json({ fechamento_id: Number(fechamentoId), status, alteracoes: alteracoes.length });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        if (!err.status) console.error('Erro ao editar fechamento:', err);
+        res.status(err.status || 500).json({ error: err.status ? err.message : 'Erro ao editar fechamento' });
+    } finally { client.release(); }
+});
+
+// "Excluir" um fechamento é arquivá-lo: ele nunca é apagado e a mudança fica no log.
+router.delete('/postos/:postoId/fechamentos/:fechamentoId', validarAcessoPosto, validarFechamentoEditavel, async (req, res) => {
+    const { fechamentoId } = req.params;
+    const client = await req.app.get('db').connect();
+    try {
+        await client.query('BEGIN');
+        const anterior = await client.query('SELECT status FROM fechamentos WHERE fechamento_id = $1 FOR UPDATE', [fechamentoId]);
+        await client.query(`UPDATE fechamentos SET status = 'arquivado', updated_at = now() WHERE fechamento_id = $1`, [fechamentoId]);
+        await registrarLog(client, fechamentoId, req.usuarioAutenticado.usuario_id, 'Arquivamento de fechamento', 'status', anterior.rows[0].status, 'arquivado');
+        await client.query('COMMIT');
+        res.json({ fechamento_id: Number(fechamentoId), status: 'arquivado' });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Erro ao arquivar fechamento:', err);
+        res.status(500).json({ error: 'Erro ao arquivar fechamento' });
+    } finally { client.release(); }
+});
+
+// Divergências
+
+const statusDivergencia = ['pendente', 'investigada', 'resolvida'];
+
+async function operadorPertenceAoPosto(pool, operadorId, postoId) {
+    if (!operadorId) return true;
+    const result = await pool.query('SELECT 1 FROM operadores JOIN empresas USING (empresa_id) WHERE operador_id = $1 AND posto_id = $2', [operadorId, postoId]);
+    return result.rowCount > 0;
+}
+
+function validarDivergencia(req, res, next) {
+    const { valor_diferenca, status = 'pendente' } = req.body;
+    if (valor_diferenca === null || valor_diferenca === '' || !Number.isFinite(Number(valor_diferenca)) || !statusDivergencia.includes(status)) {
+        return res.status(400).json({ error: 'Informe o valor da diferença e um status válido (pendente, investigada ou resolvida)' });
+    }
+    next();
+}
+
+router.post('/postos/:postoId/fechamentos/:fechamentoId/divergencias', validarAcessoPosto, validarFechamentoEditavel, validarDivergencia, async (req, res) => {
+    const { fechamento_maquina_id, operador_id, valor_diferenca, status = 'pendente' } = req.body;
+    const pool = req.app.get('db');
+    try {
+        if (!await operadorPertenceAoPosto(pool, operador_id, req.params.postoId)) return res.status(400).json({ error: 'Operador não pertence a este posto' });
+        // A máquina, quando informada, precisa ser um lançamento deste fechamento.
+        const result = await pool.query(`INSERT INTO divergencias (fechamento_id, fechamento_maquina_id, operador_id, valor_diferenca, status)
+            SELECT $1::int, $2::int, $3::int, $4::numeric, $5::varchar
+            WHERE $2::int IS NULL OR EXISTS (SELECT 1 FROM fechamento_maquinas WHERE fechamento_maquina_id = $2 AND fechamento_id = $1)
+            RETURNING divergencia_id, fechamento_id, fechamento_maquina_id, operador_id, valor_diferenca, status`,
+        [req.params.fechamentoId, fechamento_maquina_id || null, operador_id || null, valor_diferenca, status]);
+        if (!result.rowCount) return res.status(400).json({ error: 'Máquina não pertence a este fechamento' });
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error('Erro ao registrar divergência:', err);
+        res.status(500).json({ error: 'Erro ao registrar divergência' });
+    }
+});
+
+router.put('/postos/:postoId/fechamentos/:fechamentoId/divergencias/:divergenciaId', validarAcessoPosto, validarFechamentoEditavel, validarDivergencia, async (req, res) => {
+    const { operador_id, valor_diferenca, status = 'pendente' } = req.body;
+    const pool = req.app.get('db');
+    try {
+        if (!await operadorPertenceAoPosto(pool, operador_id, req.params.postoId)) return res.status(400).json({ error: 'Operador não pertence a este posto' });
+        const result = await pool.query(`UPDATE divergencias SET operador_id = $1, valor_diferenca = $2, status = $3
+            WHERE divergencia_id = $4 AND fechamento_id = $5
+            RETURNING divergencia_id, fechamento_id, fechamento_maquina_id, operador_id, valor_diferenca, status`,
+        [operador_id || null, valor_diferenca, status, req.params.divergenciaId, req.params.fechamentoId]);
+        if (!result.rowCount) return res.status(404).json({ error: 'Divergência não encontrada' });
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('Erro ao editar divergência:', err);
+        res.status(500).json({ error: 'Erro ao editar divergência' });
+    }
+});
+
+// Observações ligadas à divergência excluída continuam no fechamento como observações gerais (ON DELETE SET NULL).
+router.delete('/postos/:postoId/fechamentos/:fechamentoId/divergencias/:divergenciaId', validarAcessoPosto, validarFechamentoEditavel, async (req, res) => {
+    try {
+        const result = await req.app.get('db').query('DELETE FROM divergencias WHERE divergencia_id = $1 AND fechamento_id = $2 RETURNING divergencia_id',
+            [req.params.divergenciaId, req.params.fechamentoId]);
+        if (!result.rowCount) return res.status(404).json({ error: 'Divergência não encontrada' });
+        res.json({ message: 'Divergência excluída com sucesso' });
+    } catch (err) {
+        console.error('Erro ao excluir divergência:', err);
+        res.status(500).json({ error: 'Erro ao excluir divergência' });
+    }
+});
+
+// Observações
+
+router.post('/postos/:postoId/fechamentos/:fechamentoId/observacoes', validarAcessoPosto, validarFechamentoEditavel, async (req, res) => {
+    const { texto, divergencia_id } = req.body;
+    if (!texto?.trim()) return res.status(400).json({ error: 'O texto da observação é obrigatório' });
+    try {
+        // A divergência, quando informada, precisa ser deste fechamento.
+        const result = await req.app.get('db').query(`INSERT INTO observacoes (fechamento_id, divergencia_id, usuario_id, texto)
+            SELECT $1::int, $2::int, $3::int, $4::text
+            WHERE $2::int IS NULL OR EXISTS (SELECT 1 FROM divergencias WHERE divergencia_id = $2 AND fechamento_id = $1)
+            RETURNING observacao_id, fechamento_id, divergencia_id, usuario_id, texto, created_at`,
+        [req.params.fechamentoId, divergencia_id || null, req.usuarioAutenticado.usuario_id, texto.trim()]);
+        if (!result.rowCount) return res.status(400).json({ error: 'Divergência não pertence a este fechamento' });
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error('Erro ao registrar observação:', err);
+        res.status(500).json({ error: 'Erro ao registrar observação' });
+    }
+});
+
+router.put('/postos/:postoId/fechamentos/:fechamentoId/observacoes/:observacaoId', validarAcessoPosto, validarFechamentoEditavel, async (req, res) => {
+    const { texto } = req.body;
+    if (!texto?.trim()) return res.status(400).json({ error: 'O texto da observação é obrigatório' });
+    try {
+        const result = await req.app.get('db').query(`UPDATE observacoes SET texto = $1 WHERE observacao_id = $2 AND fechamento_id = $3
+            RETURNING observacao_id, fechamento_id, divergencia_id, usuario_id, texto, created_at`,
+        [texto.trim(), req.params.observacaoId, req.params.fechamentoId]);
+        if (!result.rowCount) return res.status(404).json({ error: 'Observação não encontrada' });
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('Erro ao editar observação:', err);
+        res.status(500).json({ error: 'Erro ao editar observação' });
+    }
+});
+
+router.delete('/postos/:postoId/fechamentos/:fechamentoId/observacoes/:observacaoId', validarAcessoPosto, validarFechamentoEditavel, async (req, res) => {
+    try {
+        const result = await req.app.get('db').query('DELETE FROM observacoes WHERE observacao_id = $1 AND fechamento_id = $2 RETURNING observacao_id',
+            [req.params.observacaoId, req.params.fechamentoId]);
+        if (!result.rowCount) return res.status(404).json({ error: 'Observação não encontrada' });
+        res.json({ message: 'Observação excluída com sucesso' });
+    } catch (err) {
+        console.error('Erro ao excluir observação:', err);
+        res.status(500).json({ error: 'Erro ao excluir observação' });
     }
 });
 

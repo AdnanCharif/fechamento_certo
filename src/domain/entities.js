@@ -8,8 +8,9 @@ export class Usuario {
 }
 
 export class Posto {
-  constructor({ posto_id = null, nome, endereco = null, created_at = null } = {}) { Object.assign(this, { posto_id, nome, endereco, created_at }); }
+  constructor({ posto_id = null, nome, endereco = null, ativo = true, created_at = null } = {}) { Object.assign(this, { posto_id, nome, endereco, ativo, created_at }); }
   validar() { return Boolean(this.nome?.trim()); }
+  inativar() { this.ativo = false; }
 }
 
 export class Empresa {

@@ -47,7 +47,6 @@ export function sideForm({ id, title, body, cancelAction, submitLabel = 'Salvar'
 
 export const field = (label, control, hint = '') => `<label>${label}${control}${hint ? `<small class="field-hint">${hint}</small>` : ''}</label>`;
 export const searchBox = (id, value, placeholder) => `<div class="surface search-bar"><input id="${id}" type="search" value="${esc(value)}" placeholder="${placeholder}" aria-label="${placeholder}"></div>`;
-export const notReady = (text) => `<div class="notice warning"><span>Backend pendente</span> ${text}</div>`;
 
 export const activePill = (active) => `<span class="pill ${active ? 'green' : 'gray'}">${active ? 'Ativo' : 'Inativo'}</span>`;
 export const differencePill = (value) => Number(value) < 0 ? '<span class="pill red">FALTA</span>' : Number(value) > 0 ? '<span class="pill green">SOBRA</span>' : '<span class="pill gray">OK</span>';

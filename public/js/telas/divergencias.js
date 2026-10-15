@@ -2,7 +2,7 @@
 import { esc, formatDate, signedMoney, sameId } from '../utils.js';
 import { api, endpoints, json } from '../api.js';
 import { state } from '../state.js';
-import { shell, dataTable, sideForm, field, notReady, toast, confirmAction, differenceClass, divergencePill, divergenceStatus, divergenceOrigin, operatorOptions } from '../components.js';
+import { shell, dataTable, sideForm, field, toast, confirmAction, differenceClass, divergencePill, divergenceStatus, divergenceOrigin, operatorOptions } from '../components.js';
 import { go, render } from '../router.js';
 import { loadClosingDetail, detailMissing } from './fechamentos.js';
 
@@ -18,10 +18,9 @@ function renderClosingDivergences() {
     body: field('Origem', `<select name="fechamento_maquina_id" ${editing ? 'disabled' : ''}>${machineOptions}</select>`)
       + field('Valor da diferença (R$)', `<input name="valor_diferenca" type="number" step="0.01" required value="${esc(editing?.valor_diferenca ?? '')}" placeholder="-150,00">`, 'Use valor negativo para falta e positivo para sobra.')
       + field('Status', `<select name="status">${statusOptions}</select>`)
-      + (state.operatorsEnabled ? field('Operador responsável', `<select name="operador_id">${operatorOptions('', 'Sem operador')}</select>`) : ''),
+      + (state.operatorsEnabled ? field('Operador responsável', `<select name="operador_id">${operatorOptions(editing?.operador_id, 'Sem operador')}</select>`) : ''),
   });
   return `${shell('Divergências do Fechamento', `${formatDate(data.fechamento.data_referencia)} · investigue, associe operadores e acompanhe o status.`, '<button class="success" data-action="new-divergence">⊕ &nbsp;Nova Divergência</button>', 'Histórico › Detalhes do Fechamento › Divergências')}
-    ${notReady('As rotas de criar, editar e excluir divergências ainda não existem; a listagem já vem do banco.')}
     <div class="split-layout"><section class="surface">${dataTable(['Origem', 'Diferença', 'Status', 'Ações'], rows, 'Nenhuma divergência neste fechamento.')}</section>${form}</div>
     <div class="form-actions"><button class="secondary" data-page="history-detail">← Voltar ao fechamento</button></div>`;
 }

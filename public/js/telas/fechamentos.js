@@ -2,7 +2,7 @@
 import { esc, formatDate, money, signedMoney } from '../utils.js';
 import { api, endpoints, json } from '../api.js';
 import { state } from '../state.js';
-import { shell, dataTable, notReady, toast, confirmAction, closingPill, differencePill, differenceClass, noteCard } from '../components.js';
+import { shell, dataTable, toast, confirmAction, closingPill, differencePill, differenceClass, noteCard } from '../components.js';
 import { go, render } from '../router.js';
 
 // Usados também pelas telas de divergências e observações.
@@ -58,7 +58,6 @@ function renderClosingEdit() {
   const item = data.fechamento;
   const rows = data.maquinas.map((row) => `<div class="value-row"><strong>${esc(row.maquina_nome)}<small>${esc(row.empresa_nome)}</small></strong><input name="esperado-${row.fechamento_maquina_id}" type="number" min="0" step="0.01" required value="${esc(row.valor_esperado)}" aria-label="Valor esperado de ${esc(row.maquina_nome)}"><input name="recebido-${row.fechamento_maquina_id}" type="number" min="0" step="0.01" required value="${esc(row.valor_recebido)}" aria-label="Valor recebido de ${esc(row.maquina_nome)}"><span class="difference">${signedMoney(row.diferenca)}</span></div>`).join('');
   return `${shell(`Editar Fechamento — ${formatDate(item.data_referencia)}`, 'Toda alteração fica registrada no log de auditoria.', '', 'Histórico › Detalhes do Fechamento › Editar')}
-    ${notReady('A rota <code>PUT /postos/:postoId/fechamentos/:id</code> ainda não existe; a tela já envia os dados no formato esperado.')}
     <form id="closing-edit-form" class="surface closing-work"><h2>Cartões por máquina</h2><div class="value-table"><div class="value-head"><span>Máquina</span><span>Valor Esperado</span><span>Valor Recebido</span><span>Diferença atual</span></div>${rows || '<p class="helper">Sem lançamentos de máquinas.</p>'}</div>
       <h3>Dinheiro em Caixa</h3><div class="cash-grid"><label>Valor Declarado (contagem física)<input name="valor_dinheiro_declarado" type="number" min="0" step="0.01" required value="${esc(item.valor_dinheiro_declarado)}"></label><label>Valor Esperado (Sistema)<input name="valor_dinheiro_esperado" type="number" min="0" step="0.01" required value="${esc(item.valor_dinheiro_esperado)}"></label></div>
       <div class="form-actions spread"><button type="button" class="secondary" data-page="history-detail">Cancelar</button><button class="success">Salvar Alterações</button></div></form>`;
