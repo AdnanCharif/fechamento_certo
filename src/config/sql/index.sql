@@ -12,3 +12,4 @@ DROP TABLE IF EXISTS "posto_usuarios" CASCADE; -- nome antigo (com INHERITS)
 DROP TABLE IF EXISTS "postos_usuarios" CASCADE; -- nome novo
 DROP TABLE IF EXISTS "usuarios" CASCADE;
 DROP TABLE IF EXISTS "postos" CASCADE;
+

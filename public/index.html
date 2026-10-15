@@ -26,13 +26,17 @@
   <div id="application" class="application" hidden>
     <aside class="sidebar">
       <a href="#dashboard" class="brand" data-page="dashboard"><span class="brand-icon">⛽</span><span><strong>Fechamento Certo</strong><small>POSTO &amp; CONVENIÊNCIA</small></span></a>
+      <label class="post-switcher">Posto atual<select id="post-select" aria-label="Posto atual"></select></label>
       <nav id="main-nav" class="main-nav" aria-label="Navegação principal">
         <button data-page="dashboard" class="nav-link active"><span>▦</span>Dashboard</button>
         <button data-page="closing" class="nav-link"><span>⊕</span>Novo Fechamento</button>
         <button data-page="history" class="nav-link"><span>◴</span>Histórico</button>
         <button data-page="machines" class="nav-link"><span>▤</span>Máquinas</button>
-        <button data-page="operators" class="nav-link" id="operators-nav"><span>⚙</span>Operadores</button>
+        <button data-page="operators" class="nav-link" id="operators-nav"><span>☺</span>Operadores</button>
         <button data-page="settings" class="nav-link"><span>⚙</span>Configurações</button>
+        <p class="nav-section">Administração</p>
+        <button data-page="establishments" class="nav-link"><span>⌂</span>Estabelecimentos</button>
+        <button data-page="managers" class="nav-link"><span>♟</span>Gerentes</button>
       </nav>
       <button class="account-card" data-page="profile"><span class="avatar" id="account-avatar">G</span><span><strong id="account-name">Gestor</strong><small>Gerente Geral</small></span></button>
       <button id="logout-button" class="logout-link">Sair da conta</button>
@@ -42,6 +46,18 @@
       <div id="page-root"></div>
     </main>
   </div>
-  <script src="/script.js" defer></script>
+
+  <dialog id="confirm-dialog" class="confirm-dialog">
+    <form method="dialog">
+      <div class="confirm-icon" aria-hidden="true">⚠</div>
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-message"></p>
+      <div class="form-actions end">
+        <button class="secondary" value="cancel">Cancelar</button>
+        <button class="danger" value="confirm" id="confirm-button">Confirmar</button>
+      </div>
+    </form>
+  </dialog>
+  <script type="module" src="/js/main.js"></script>
 </body>
 </html>
