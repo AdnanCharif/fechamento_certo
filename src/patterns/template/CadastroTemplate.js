@@ -1,14 +1,12 @@
+import { ErroHttp } from '../../lib/http.js';
+
 // Template Method: execute fixa a sequência transacional; subclasses definem
 // a validação e a gravação específicas de cada cadastro.
 export class CadastroTemplate {
   constructor(validationStrategy) { this.validationStrategy = validationStrategy; }
 
   async execute(pool, data) {
-    if (!this.validationStrategy.validate(data)) {
-      const error = new Error('Dados obrigatórios ou inválidos');
-      error.status = 400;
-      throw error;
-    }
+    if (!this.validationStrategy.validate(data)) throw new ErroHttp(400, 'Dados obrigatórios ou inválidos');
 
     const client = await pool.connect();
     try {
