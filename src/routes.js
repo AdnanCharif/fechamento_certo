@@ -5,13 +5,10 @@ import { CadastroEmpresa, CadastroMaquina, CadastroOperador, CadastroPosto } fro
 import { productVariability } from './config/productVariability.js';
 import { ErroHttp, rota } from './lib/http.js';
 import { transacao } from './lib/transacao.js';
+import { listar, cadastrar, alterarAtivo, excluirDoFechamento } from './lib/fabricasDeRotas.js';
 
 const router = express.Router();
 const tokenService = JwtTokenService.getInstance();
-const cadastroEmpresa = new CadastroEmpresa();
-const cadastroMaquina = new CadastroMaquina();
-const cadastroOperador = new CadastroOperador();
-const cadastroPosto = new CadastroPosto();
 
 // Middlewares
 
@@ -52,6 +49,9 @@ const validarFechamentoEditavel = rota('Erro ao validar fechamento', async (req,
     if (result.rows[0].status === 'arquivado') throw new ErroHttp(409, 'Fechamento arquivado não pode ser alterado');
     next();
 });
+
+// Cadeia reutilizada por toda rota que altera um fechamento ou o que pertence a ele.
+const fechamentoEditavel = [validarAcessoPosto, validarFechamentoEditavel];
 
 const statusDivergencia = ['pendente', 'investigada', 'resolvida'];
 
@@ -124,24 +124,18 @@ router.use('/operadores', featureGestaoOperadores);
 
 //Postos
 
-router.get('/postos/:usuarioid', rota('Erro ao buscar postos do usuário', async (req, res) => {
-    const sql = `select p.posto_id as posto_id, p.nome as nome_posto, u.nome as nome_usuario
-                  from postos_usuarios pu
-                  inner join postos p
-                  on pu.posto_id = p.posto_id
-                  inner join usuarios u
-                  on pu.usuario_id = u.usuario_id
-                  where u.usuario_id = $1 and p.ativo;`;
-    const result = await req.app.get('db').query(sql, [req.params.usuarioid]);
-    res.json(result.rows);
-}));
+router.get('/postos/:usuarioid', listar('Erro ao buscar postos do usuário',
+    `select p.posto_id as posto_id, p.nome as nome_posto, u.nome as nome_usuario
+     from postos_usuarios pu
+     inner join postos p on pu.posto_id = p.posto_id
+     inner join usuarios u on pu.usuario_id = u.usuario_id
+     where u.usuario_id = $1 and p.ativo`,
+    (req) => [req.params.usuarioid]));
 
-router.post('/postos', rota('Erro ao cadastrar estabelecimento', async (req, res) => {
-    // O gerente escolhido e quem cadastrou passam a ter acesso ao novo posto.
-    const usuarios = [req.body.usuario_id || req.usuarioAutenticado.usuario_id, req.usuarioAutenticado.usuario_id];
-    const result = await cadastroPosto.execute(req.app.get('db'), { ...req.body, usuarios });
-    res.status(201).json(result.rows[0]);
-}, { '23503': new ErroHttp(400, 'Gerente responsável não encontrado') }));
+// O gerente escolhido e quem cadastrou passam a ter acesso ao novo posto.
+router.post('/postos', cadastrar(new CadastroPosto(), 'Erro ao cadastrar estabelecimento',
+    (req) => ({ ...req.body, usuarios: [req.body.usuario_id || req.usuarioAutenticado.usuario_id, req.usuarioAutenticado.usuario_id] }),
+    { '23503': new ErroHttp(400, 'Gerente responsável não encontrado') }));
 
 router.put('/postos/:postoId', validarAcessoPosto, rota('Erro ao editar estabelecimento', async (req, res) => {
     const { nome, endereco } = req.body;
@@ -165,17 +159,12 @@ router.delete('/postos/:postoId', validarAcessoPosto, rota('Erro ao inativar est
 
 //Usuários
 
-router.get('/postos/:id/usuarios', rota('Erro ao buscar usuários do posto', async (req, res) => {
-    const sql = `select u.usuario_id, u.nome, u.email, u.created_at
-              from postos_usuarios pu
-              inner join postos p
-              on pu.posto_id = p.posto_id
-              inner join usuarios u
-              on pu.usuario_id = u.usuario_id
-              where p.posto_id = $1;`;
-    const result = await req.app.get('db').query(sql, [req.params.id]);
-    res.json(result.rows);
-}));
+router.get('/postos/:id/usuarios', listar('Erro ao buscar usuários do posto',
+    `select u.usuario_id, u.nome, u.email, u.created_at
+     from postos_usuarios pu
+     inner join usuarios u on pu.usuario_id = u.usuario_id
+     where pu.posto_id = $1`,
+    (req) => [req.params.id]));
 
 router.post('/postos/:id/usuarios', rota('Erro ao adicionar usuário ao posto', async (req, res) => {
     const postoId = req.params.id;
@@ -292,29 +281,14 @@ router.put('/usuarios/:id', rota('Erro ao editar usuário', async (req, res) => 
     });
 }));
 
-router.patch('/usuarios/:id', rota('Erro ao alterar status do usuário', async (req, res) => {
-    const { ativo } = req.body;
-    if (typeof ativo !== 'boolean') throw new ErroHttp(400, 'Informe ativo como booleano');
-    const result = await req.app.get('db').query(
-        'UPDATE usuarios SET ativo = $1 WHERE usuario_id = $2 RETURNING usuario_id, nome, email, ativo',
-        [ativo, req.params.id],
-    );
-    if (!result.rowCount) throw new ErroHttp(404, 'Usuário não encontrado');
-    res.json(result.rows[0]);
-}));
+router.patch('/usuarios/:id', alterarAtivo('usuarios', 'usuario_id', 'Usuário não encontrado'));
 
 
 //Empresas
 
-router.get('/postos/empresas/:posto_id', rota('Erro ao buscar empresas do posto', async (req, res) => {
-    const sql = `select e.empresa_id, e.nome, e.cnpj, e.tipo, e.created_at
-                from postos p
-                inner join empresas e
-                on p.posto_id = e.posto_id
-                where p.posto_id = $1`;
-    const result = await req.app.get('db').query(sql, [req.params.posto_id]);
-    res.json(result.rows);
-}));
+router.get('/postos/empresas/:posto_id', listar('Erro ao buscar empresas do posto',
+    'select empresa_id, nome, cnpj, tipo, created_at from empresas where posto_id = $1',
+    (req) => [req.params.posto_id]));
 
 router.put('/empresas/:id', rota('Erro ao editar empresa', async (req, res) => {
     const { nome, cnpj, tipo } = req.body;
@@ -327,10 +301,7 @@ router.put('/empresas/:id', rota('Erro ao editar empresa', async (req, res) => {
     res.json({ message: 'Empresa editada com sucesso' });
 }));
 
-router.post('/empresas', rota('Erro ao cadastrar empresa', async (req, res) => {
-    const result = await cadastroEmpresa.execute(req.app.get('db'), req.body);
-    res.status(201).json(result.rows[0]);
-}));
+router.post('/empresas', cadastrar(new CadastroEmpresa(), 'Erro ao cadastrar empresa'));
 
 router.delete('/empresas/:id', rota('Não foi possível remover a empresa; confira se ela possui máquinas ou operadores vinculados', async (req, res) => {
     const result = await req.app.get('db').query('DELETE FROM empresas WHERE empresa_id = $1 RETURNING empresa_id', [req.params.id]);
@@ -341,32 +312,15 @@ router.delete('/empresas/:id', rota('Não foi possível remover a empresa; confi
 
 //Máquinas
 
-router.get('/postos/:id/maquinas', rota('Erro ao buscar máquinas do posto', async (req, res) => {
-    const sql = `select m.maquina_id, m.empresa_id, m.nome as nome_maquina, e.nome as nome_empresa, m.ativo, m.created_at
-    from empresas e
-    inner join maquinas m
-    on e.empresa_id = m.empresa_id
-    inner join postos p
-    on e.posto_id = p.posto_id
-    where p.posto_id = $1;`;
-    const result = await req.app.get('db').query(sql, [req.params.id]);
-    res.json(result.rows);
-}));
+// Mesmo SELECT para listar as máquinas do posto e buscar uma máquina; muda só o filtro.
+const sqlMaquinas = `select m.maquina_id, m.empresa_id, m.nome as nome_maquina, e.nome as nome_empresa, m.ativo, m.created_at
+    from maquinas m inner join empresas e on e.empresa_id = m.empresa_id`;
 
-router.post('/maquinas', rota('Erro ao cadastrar máquina', async (req, res) => {
-    const result = await cadastroMaquina.execute(req.app.get('db'), req.body);
-    res.status(201).json(result.rows[0]);
-}));
+router.get('/postos/:id/maquinas', listar('Erro ao buscar máquinas do posto', `${sqlMaquinas} where e.posto_id = $1`, (req) => [req.params.id]));
 
-router.get('/maquinas/:id', rota('Erro ao listar máquina', async (req, res) => {
-    const sql = `select m.maquina_id, m.empresa_id, m.nome as nome_maquina, e.nome as nome_empresa, m.ativo, m.created_at
-                from empresas e
-                inner join maquinas m
-                on m.empresa_id = e.empresa_id
-                where m.maquina_id = $1`;
-    const result = await req.app.get('db').query(sql, [req.params.id]);
-    res.json(result.rows);
-}));
+router.post('/maquinas', cadastrar(new CadastroMaquina(), 'Erro ao cadastrar máquina'));
+
+router.get('/maquinas/:id', listar('Erro ao listar máquina', `${sqlMaquinas} where m.maquina_id = $1`, (req) => [req.params.id]));
 
 router.put('/maquinas/:id', rota('Erro ao editar maquina', async (req, res) => {
     const { empresa_id, nome, ativo } = req.body;
@@ -385,47 +339,21 @@ router.put('/maquinas/:id', rota('Erro ao editar maquina', async (req, res) => {
     res.json({"message": "Máquina alterada com sucesso"});
 }));
 
-router.delete('/maquinas/:id', rota('Erro ao excluir a maquina', async (req, res) => {
-    const sql = `update maquinas set ativo = false where maquina_id = $1 RETURNING maquina_id`;
-    const result = await req.app.get('db').query(sql, [req.params.id]);
-    if (!result.rowCount) throw new ErroHttp(404, 'Máquina não encontrada');
-    res.json({"message": "Maquina excluida com sucesso"});
-}));
-
-router.patch('/maquinas/:id', rota('Erro ao atualizar status da máquina', async (req, res) => {
-    const { ativo } = req.body;
-    if (typeof ativo !== 'boolean') throw new ErroHttp(400, 'Informe ativo como booleano');
-
-    const sql = `UPDATE maquinas SET ativo = $1 WHERE maquina_id = $2 RETURNING maquina_id, ativo`;
-    const result = await req.app.get('db').query(sql, [ativo, req.params.id]);
-    if (!result.rowCount) throw new ErroHttp(404, 'Máquina não encontrada');
-    res.json(result.rows[0]);
-}));
+// Excluir máquina é inativá-la; o PATCH liga e desliga.
+router.delete('/maquinas/:id', alterarAtivo('maquinas', 'maquina_id', 'Máquina não encontrada', false));
+router.patch('/maquinas/:id', alterarAtivo('maquinas', 'maquina_id', 'Máquina não encontrada'));
 
 
 //Operadores
-router.get('/operadores/posto/:id', rota('Erro ao listar operadores do posto', async (req, res) => {
-    const sql = `select o.operador_id, o.empresa_id, o.nome as nome_operador, e.nome as nome_empresa, o.ativo, o.created_at
-                from empresas e
-                inner join operadores o
-                on e.empresa_id = o.empresa_id
-                inner join postos p
-                on p.posto_id = e.posto_id
-                where p.posto_id = $1;`;
-    const result = await req.app.get('db').query(sql, [req.params.id]);
-    res.json(result.rows);
-}));
+router.get('/operadores/posto/:id', listar('Erro ao listar operadores do posto',
+    `select o.operador_id, o.empresa_id, o.nome as nome_operador, e.nome as nome_empresa, o.ativo, o.created_at
+     from operadores o inner join empresas e on e.empresa_id = o.empresa_id
+     where e.posto_id = $1`,
+    (req) => [req.params.id]));
 
-router.post('/operadores', rota('Erro ao cadastrar operador', async (req,res) => {
-    const result = await cadastroOperador.execute(req.app.get('db'), req.body);
-    res.status(201).json(result.rows[0]);
-}));
+router.post('/operadores', cadastrar(new CadastroOperador(), 'Erro ao cadastrar operador'));
 
-router.get('/operadores/nome', rota('Erro ao buscar operador', async (req, res) => {
-    const sql = `select * from operadores where nome = $1`;
-    const result = await req.app.get('db').query(sql, [req.query.nome]);
-    res.json(result.rows);
-}));
+router.get('/operadores/nome', listar('Erro ao buscar operador', 'select * from operadores where nome = $1', (req) => [req.query.nome]));
 
 router.put('/operadores/:id', rota('Erro ao editar operador', async (req, res) => {
     const {empresa_id, nome} = req.body;
@@ -439,25 +367,9 @@ router.put('/operadores/:id', rota('Erro ao editar operador', async (req, res) =
     res.json({message: 'Operador editado com sucesso'});
 }));
 
-router.delete('/operadores/:id', rota('Erro ao inativar operador', async (req, res) => {
-    const result = await req.app.get('db').query(
-        'UPDATE operadores SET ativo = false WHERE operador_id = $1 RETURNING operador_id, nome, ativo',
-        [req.params.id],
-    );
-    if (!result.rowCount) throw new ErroHttp(404, 'Operador não encontrado');
-    res.json(result.rows[0]);
-}));
-
-//desativar operador
-router.patch('/operadores/:id', rota('Erro ao mudar o status do operador', async (req, res) => {
-    const { ativo }  = req.body;
-    if (typeof ativo !== 'boolean') throw new ErroHttp(400, 'Informe ativo como booleano');
-
-    const sql = `update operadores set ativo = $1 where operador_id = $2 RETURNING operador_id, ativo`;
-    const result = await req.app.get('db').query(sql, [ativo, req.params.id]);
-    if (!result.rowCount) throw new ErroHttp(404, 'Operador não encontrado');
-    res.json(result.rows[0]);
-}));
+// Excluir operador é inativá-lo; o PATCH liga e desliga.
+router.delete('/operadores/:id', alterarAtivo('operadores', 'operador_id', 'Operador não encontrado', false));
+router.patch('/operadores/:id', alterarAtivo('operadores', 'operador_id', 'Operador não encontrado'));
 
 // Fechamentos
 
@@ -484,9 +396,8 @@ router.get('/postos/:postoId/fechamentos/dashboard', validarAcessoPosto, rota('E
     res.json({ totals: summary.rows[0], daily: daily.rows, recent: recent.rows });
 }));
 
-router.get('/postos/:postoId/fechamentos', validarAcessoPosto, rota('Erro ao listar fechamentos', async (req, res) => {
-    const { from, to, status } = req.query;
-    const result = await req.app.get('db').query(`SELECT f.fechamento_id, f.data_referencia::text AS data,
+router.get('/postos/:postoId/fechamentos', validarAcessoPosto, listar('Erro ao listar fechamentos',
+    `SELECT f.fechamento_id, f.data_referencia::text AS data,
         f.status, f.valor_dinheiro_declarado AS dinheiro_declarado, f.valor_dinheiro_esperado AS dinheiro_esperado,
         COALESCE(SUM(fe.valor_esperado), 0) AS total_esperado,
         COALESCE(SUM(fe.valor_recebido), 0) AS total_cartoes,
@@ -498,9 +409,7 @@ router.get('/postos/:postoId/fechamentos', validarAcessoPosto, rota('Erro ao lis
           AND ($3::date IS NULL OR f.data_referencia <= $3::date)
           AND ($4::varchar IS NULL OR f.status = $4::varchar)
         GROUP BY f.fechamento_id ORDER BY f.data_referencia DESC`,
-    [req.params.postoId, from || null, to || null, status && status !== 'Todos' ? status : null]);
-    res.json(result.rows);
-}));
+    ({ params, query: { from, to, status } }) => [params.postoId, from || null, to || null, status && status !== 'Todos' ? status : null]));
 
 router.post('/postos/:postoId/fechamentos', validarAcessoPosto, rota('Erro ao salvar fechamento', async (req, res) => {
     const { data_referencia, valor_dinheiro_esperado, valor_dinheiro_declarado, maquinas } = req.body;
@@ -572,7 +481,7 @@ router.get('/postos/:postoId/fechamentos/:fechamentoId', validarAcessoPosto, rot
 }));
 
 // Edita valores do fechamento; cada campo alterado vira uma linha em logs_auditoria.
-router.put('/postos/:postoId/fechamentos/:fechamentoId', validarAcessoPosto, validarFechamentoEditavel, rota('Erro ao editar fechamento', async (req, res) => {
+router.put('/postos/:postoId/fechamentos/:fechamentoId', fechamentoEditavel, rota('Erro ao editar fechamento', async (req, res) => {
     const { valor_dinheiro_esperado, valor_dinheiro_declarado, maquinas = [] } = req.body;
     if (!Array.isArray(maquinas)
         || ![valor_dinheiro_esperado, valor_dinheiro_declarado, ...maquinas.flatMap((m) => [m.valor_esperado, m.valor_recebido])]
@@ -617,7 +526,7 @@ router.put('/postos/:postoId/fechamentos/:fechamentoId', validarAcessoPosto, val
 }));
 
 // "Excluir" um fechamento é arquivá-lo: ele nunca é apagado e a mudança fica no log.
-router.delete('/postos/:postoId/fechamentos/:fechamentoId', validarAcessoPosto, validarFechamentoEditavel, rota('Erro ao arquivar fechamento', async (req, res) => {
+router.delete('/postos/:postoId/fechamentos/:fechamentoId', fechamentoEditavel, rota('Erro ao arquivar fechamento', async (req, res) => {
     const { fechamentoId } = req.params;
     await transacao(req.app.get('db'), async (client) => {
         const anterior = await client.query('SELECT status FROM fechamentos WHERE fechamento_id = $1 FOR UPDATE', [fechamentoId]);
@@ -629,7 +538,7 @@ router.delete('/postos/:postoId/fechamentos/:fechamentoId', validarAcessoPosto, 
 
 // Divergências
 
-router.post('/postos/:postoId/fechamentos/:fechamentoId/divergencias', validarAcessoPosto, validarFechamentoEditavel, validarDivergencia, rota('Erro ao registrar divergência', async (req, res) => {
+router.post('/postos/:postoId/fechamentos/:fechamentoId/divergencias', fechamentoEditavel, validarDivergencia, rota('Erro ao registrar divergência', async (req, res) => {
     const { fechamento_maquina_id, operador_id, valor_diferenca, status = 'pendente' } = req.body;
     const pool = req.app.get('db');
     await validarOperadorDoPosto(pool, operador_id, req.params.postoId);
@@ -643,29 +552,25 @@ router.post('/postos/:postoId/fechamentos/:fechamentoId/divergencias', validarAc
     res.status(201).json(result.rows[0]);
 }));
 
-router.put('/postos/:postoId/fechamentos/:fechamentoId/divergencias/:divergenciaId', validarAcessoPosto, validarFechamentoEditavel, validarDivergencia, rota('Erro ao editar divergência', async (req, res) => {
+router.put('/postos/:postoId/fechamentos/:fechamentoId/divergencias/:id', fechamentoEditavel, validarDivergencia, rota('Erro ao editar divergência', async (req, res) => {
     const { operador_id, valor_diferenca, status = 'pendente' } = req.body;
     const pool = req.app.get('db');
     await validarOperadorDoPosto(pool, operador_id, req.params.postoId);
     const result = await pool.query(`UPDATE divergencias SET operador_id = $1, valor_diferenca = $2, status = $3
         WHERE divergencia_id = $4 AND fechamento_id = $5
         RETURNING divergencia_id, fechamento_id, fechamento_maquina_id, operador_id, valor_diferenca, status`,
-    [operador_id || null, valor_diferenca, status, req.params.divergenciaId, req.params.fechamentoId]);
+    [operador_id || null, valor_diferenca, status, req.params.id, req.params.fechamentoId]);
     if (!result.rowCount) throw new ErroHttp(404, 'Divergência não encontrada');
     res.json(result.rows[0]);
 }));
 
 // Observações ligadas à divergência excluída continuam no fechamento como observações gerais (ON DELETE SET NULL).
-router.delete('/postos/:postoId/fechamentos/:fechamentoId/divergencias/:divergenciaId', validarAcessoPosto, validarFechamentoEditavel, rota('Erro ao excluir divergência', async (req, res) => {
-    const result = await req.app.get('db').query('DELETE FROM divergencias WHERE divergencia_id = $1 AND fechamento_id = $2 RETURNING divergencia_id',
-        [req.params.divergenciaId, req.params.fechamentoId]);
-    if (!result.rowCount) throw new ErroHttp(404, 'Divergência não encontrada');
-    res.json({ message: 'Divergência excluída com sucesso' });
-}));
+router.delete('/postos/:postoId/fechamentos/:fechamentoId/divergencias/:id', fechamentoEditavel,
+    excluirDoFechamento('divergencias', 'divergencia_id', 'Divergência não encontrada', 'Divergência excluída com sucesso'));
 
 // Observações
 
-router.post('/postos/:postoId/fechamentos/:fechamentoId/observacoes', validarAcessoPosto, validarFechamentoEditavel, rota('Erro ao registrar observação', async (req, res) => {
+router.post('/postos/:postoId/fechamentos/:fechamentoId/observacoes', fechamentoEditavel, rota('Erro ao registrar observação', async (req, res) => {
     const { texto, divergencia_id } = req.body;
     if (!texto?.trim()) throw new ErroHttp(400, 'O texto da observação é obrigatório');
     // A divergência, quando informada, precisa ser deste fechamento.
@@ -678,21 +583,17 @@ router.post('/postos/:postoId/fechamentos/:fechamentoId/observacoes', validarAce
     res.status(201).json(result.rows[0]);
 }));
 
-router.put('/postos/:postoId/fechamentos/:fechamentoId/observacoes/:observacaoId', validarAcessoPosto, validarFechamentoEditavel, rota('Erro ao editar observação', async (req, res) => {
+router.put('/postos/:postoId/fechamentos/:fechamentoId/observacoes/:id', fechamentoEditavel, rota('Erro ao editar observação', async (req, res) => {
     const { texto } = req.body;
     if (!texto?.trim()) throw new ErroHttp(400, 'O texto da observação é obrigatório');
     const result = await req.app.get('db').query(`UPDATE observacoes SET texto = $1 WHERE observacao_id = $2 AND fechamento_id = $3
         RETURNING observacao_id, fechamento_id, divergencia_id, usuario_id, texto, created_at`,
-    [texto.trim(), req.params.observacaoId, req.params.fechamentoId]);
+    [texto.trim(), req.params.id, req.params.fechamentoId]);
     if (!result.rowCount) throw new ErroHttp(404, 'Observação não encontrada');
     res.json(result.rows[0]);
 }));
 
-router.delete('/postos/:postoId/fechamentos/:fechamentoId/observacoes/:observacaoId', validarAcessoPosto, validarFechamentoEditavel, rota('Erro ao excluir observação', async (req, res) => {
-    const result = await req.app.get('db').query('DELETE FROM observacoes WHERE observacao_id = $1 AND fechamento_id = $2 RETURNING observacao_id',
-        [req.params.observacaoId, req.params.fechamentoId]);
-    if (!result.rowCount) throw new ErroHttp(404, 'Observação não encontrada');
-    res.json({ message: 'Observação excluída com sucesso' });
-}));
+router.delete('/postos/:postoId/fechamentos/:fechamentoId/observacoes/:id', fechamentoEditavel,
+    excluirDoFechamento('observacoes', 'observacao_id', 'Observação não encontrada', 'Observação excluída com sucesso'));
 
 export default router;
