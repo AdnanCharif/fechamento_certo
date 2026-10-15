@@ -4,6 +4,7 @@ import { JwtTokenService } from './patterns/singleton/JwtTokenService.js';
 import { CadastroEmpresa, CadastroMaquina, CadastroOperador, CadastroPosto } from './patterns/template/Cadastros.js';
 import { productVariability } from './config/productVariability.js';
 import { ErroHttp, rota } from './lib/http.js';
+import { transacao } from './lib/transacao.js';
 
 const router = express.Router();
 const tokenService = JwtTokenService.getInstance();
@@ -179,13 +180,9 @@ router.get('/postos/:id/usuarios', rota('Erro ao buscar usuários do posto', asy
 router.post('/postos/:id/usuarios', rota('Erro ao adicionar usuário ao posto', async (req, res) => {
     const postoId = req.params.id;
     const { nome, email, senha } = req.body;
-    const client = await req.app.get('db').connect();
+    const senhaHash = await bcrypt.hash(senha, 10);
 
-    try {
-        const senhaHash = await bcrypt.hash(senha, 10);
-
-        await client.query('BEGIN');
-
+    const usuarioId = await transacao(req.app.get('db'), async (client) => {
         // 1. Cria o usuário e já pega o id gerado com RETURNING
         const insertUsuario = `
             INSERT INTO usuarios (nome, email, senha)
@@ -193,34 +190,24 @@ router.post('/postos/:id/usuarios', rota('Erro ao adicionar usuário ao posto', 
             RETURNING usuario_id;
         `;
         const usuarioResult = await client.query(insertUsuario, [nome, email, senhaHash]);
-        const usuarioId = usuarioResult.rows[0].usuario_id;
 
         // 2. Vincula esse usuário ao posto na tabela associativa
         const insertVinculo = `
             INSERT INTO postos_usuarios (posto_id, usuario_id)
             VALUES ($1, $2);
         `;
-        await client.query(insertVinculo, [postoId, usuarioId]);
+        await client.query(insertVinculo, [postoId, usuarioResult.rows[0].usuario_id]);
+        return usuarioResult.rows[0].usuario_id;
+    });
 
-        await client.query('COMMIT');
-
-        res.status(201).json({ usuario_id: usuarioId, posto_id: postoId });
-    } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
-    } finally {
-        client.release();
-    }
+    res.status(201).json({ usuario_id: usuarioId, posto_id: postoId });
 }));
 
 router.delete('/postos/:id/usuarios/:usuarioId', rota('Erro ao remover usuário do posto', async (req, res) => {
     const postoId = req.params.id;
     const usuarioId = req.params.usuarioId;
-    const client = await req.app.get('db').connect();
 
-    try {
-        await client.query('BEGIN');
-
+    const totalVinculos = await transacao(req.app.get('db'), async (client) => {
         // 1. Remove o vínculo entre o usuário e esse posto
         const deleteVinculo = `
             DELETE FROM postos_usuarios
@@ -235,28 +222,22 @@ router.delete('/postos/:id/usuarios/:usuarioId', rota('Erro ao remover usuário 
             WHERE usuario_id = $1;
         `;
         const checkResult = await client.query(checkVinculos, [usuarioId]);
-        const totalVinculos = parseInt(checkResult.rows[0].total, 10);
+        const total = parseInt(checkResult.rows[0].total, 10);
 
         // 3. Se não sobrou nenhum vínculo, inativa o usuário
-        if (totalVinculos === 0) {
+        if (total === 0) {
             await client.query(
                 `UPDATE usuarios SET ativo = false WHERE usuario_id = $1;`,
                 [usuarioId]
             );
         }
+        return total;
+    });
 
-        await client.query('COMMIT');
-
-        res.json({
-            message: 'Usuário removido do posto com sucesso',
-            usuario_inativado: totalVinculos === 0
-        });
-    } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
-    } finally {
-        client.release();
-    }
+    res.json({
+        message: 'Usuário removido do posto com sucesso',
+        usuario_inativado: totalVinculos === 0
+    });
 }));
 
 // Vincula um gerente já cadastrado e reativa o acesso dele, caso tenha sido inativado ao perder o último vínculo.
@@ -285,11 +266,7 @@ router.put('/usuarios/:id', rota('Erro ao editar usuário', async (req, res) => 
     const { nome, email, senha } = req.body;
     if (!nome?.trim() || !email?.trim()) throw new ErroHttp(400, 'Nome e email são obrigatórios');
 
-    const client = await req.app.get('db').connect();
-
-    try {
-        await client.query('BEGIN');
-
+    await transacao(req.app.get('db'), async (client) => {
         // Atualiza nome e email
         const updateUsuario = `
             UPDATE usuarios
@@ -308,18 +285,11 @@ router.put('/usuarios/:id', rota('Erro ao editar usuário', async (req, res) => 
             `;
             await client.query(updateSenha, [senhaHash, userId]);
         }
+    });
 
-        await client.query('COMMIT');
-
-        res.json({
-            message: 'Usuário editado com sucesso',
-        });
-    } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
-    } finally {
-        client.release();
-    }
+    res.json({
+        message: 'Usuário editado com sucesso',
+    });
 }));
 
 router.patch('/usuarios/:id', rota('Erro ao alterar status do usuário', async (req, res) => {
@@ -539,9 +509,7 @@ router.post('/postos/:postoId/fechamentos', validarAcessoPosto, rota('Erro ao sa
             .every((value) => Number.isFinite(Number(value)) && Number(value) >= 0)) {
         throw new ErroHttp(400, 'Informe data, valores não negativos e lançamentos de máquinas válidos');
     }
-    const client = await req.app.get('db').connect();
-    try {
-        await client.query('BEGIN');
+    const criado = await transacao(req.app.get('db'), async (client) => {
         const fechamento = await client.query(`INSERT INTO fechamentos
             (posto_id, usuario_id, data_referencia, valor_dinheiro_esperado, valor_dinheiro_declarado, status)
             VALUES ($1, $2, $3::date, $4, $5, 'em_analise') RETURNING fechamento_id`,
@@ -577,12 +545,9 @@ router.post('/postos/:postoId/fechamentos', validarAcessoPosto, rota('Erro ao sa
         const status = cashDiff !== 0 || [...totals.values()].some((t) => t.esperado !== t.recebido) ? 'com_divergencia' : 'ok';
         await client.query('UPDATE fechamentos SET status = $1, updated_at = now() WHERE fechamento_id = $2', [status, fechamentoId]);
         await registrarLog(client, fechamentoId, req.usuarioAutenticado.usuario_id, 'Criação de fechamento', 'status', null, status);
-        await client.query('COMMIT');
-        res.status(201).json({ fechamento_id: fechamentoId, status });
-    } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
-    } finally { client.release(); }
+        return { fechamento_id: fechamentoId, status };
+    });
+    res.status(201).json(criado);
 }, { '23505': new ErroHttp(409, 'Já existe um fechamento para este posto e data') }));
 
 router.get('/postos/:postoId/fechamentos/:fechamentoId', validarAcessoPosto, rota('Erro ao carregar detalhe do fechamento', async (req, res) => {
@@ -615,9 +580,7 @@ router.put('/postos/:postoId/fechamentos/:fechamentoId', validarAcessoPosto, val
         throw new ErroHttp(400, 'Informe valores não negativos para o dinheiro e para as máquinas');
     }
     const { fechamentoId } = req.params;
-    const client = await req.app.get('db').connect();
-    try {
-        await client.query('BEGIN');
+    const editado = await transacao(req.app.get('db'), async (client) => {
         const atual = (await client.query('SELECT valor_dinheiro_esperado, valor_dinheiro_declarado, status FROM fechamentos WHERE fechamento_id = $1 FOR UPDATE', [fechamentoId])).rows[0];
         const alteracoes = [];
         const comparar = (campo, anterior, novo) => {
@@ -648,29 +611,20 @@ router.put('/postos/:postoId/fechamentos/:fechamentoId', validarAcessoPosto, val
         for (const [campo, anterior, novo] of alteracoes) {
             await registrarLog(client, fechamentoId, req.usuarioAutenticado.usuario_id, 'Edição de fechamento', campo, anterior, novo);
         }
-        await client.query('COMMIT');
-        res.json({ fechamento_id: Number(fechamentoId), status, alteracoes: alteracoes.length });
-    } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
-    } finally { client.release(); }
+        return { fechamento_id: Number(fechamentoId), status, alteracoes: alteracoes.length };
+    });
+    res.json(editado);
 }));
 
 // "Excluir" um fechamento é arquivá-lo: ele nunca é apagado e a mudança fica no log.
 router.delete('/postos/:postoId/fechamentos/:fechamentoId', validarAcessoPosto, validarFechamentoEditavel, rota('Erro ao arquivar fechamento', async (req, res) => {
     const { fechamentoId } = req.params;
-    const client = await req.app.get('db').connect();
-    try {
-        await client.query('BEGIN');
+    await transacao(req.app.get('db'), async (client) => {
         const anterior = await client.query('SELECT status FROM fechamentos WHERE fechamento_id = $1 FOR UPDATE', [fechamentoId]);
         await client.query(`UPDATE fechamentos SET status = 'arquivado', updated_at = now() WHERE fechamento_id = $1`, [fechamentoId]);
         await registrarLog(client, fechamentoId, req.usuarioAutenticado.usuario_id, 'Arquivamento de fechamento', 'status', anterior.rows[0].status, 'arquivado');
-        await client.query('COMMIT');
-        res.json({ fechamento_id: Number(fechamentoId), status: 'arquivado' });
-    } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
-    } finally { client.release(); }
+    });
+    res.json({ fechamento_id: Number(fechamentoId), status: 'arquivado' });
 }));
 
 // Divergências
