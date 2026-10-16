@@ -1,12 +1,16 @@
 import express from 'express';
 import bcrypt from 'bcrypt';
 import { JwtTokenService } from './patterns/singleton/JwtTokenService.js';
-import { CadastroEmpresa, CadastroMaquina, CadastroOperador, CadastroPosto } from './patterns/template/Cadastros.js';
+import { CadastroEmpresa, CadastroMaquina, CadastroOperador } from './patterns/template/Cadastros.js';
+import { gerarAlertas } from './patterns/strategy/RegrasDeAlerta.js';
 import { productVariability } from './config/productVariability.js';
 import { Fechamento } from './domain/entities.js';
 import { ErroHttp, rota } from './lib/http.js';
 import { transacao } from './lib/transacao.js';
 import { listar, cadastrar, alterarAtivo, excluirDoFechamento } from './lib/fabricasDeRotas.js';
+import { registrarAtividade } from './lib/atividade.js';
+import { modulosAtivos } from './config/catalogo.js';
+import adminRouter from './adminRoutes.js';
 
 const router = express.Router();
 const tokenService = JwtTokenService.getInstance();
@@ -40,6 +44,12 @@ const validarAcessoPosto = rota('Erro ao validar acesso ao posto', async (req, r
     next();
 });
 
+// Dados pessoais e lista de postos: cada usuário só acessa os próprios.
+const somenteProprioUsuario = (param) => rota('Erro ao validar usuário', (req, res, next) => {
+    if (String(req.params[param]) !== String(req.usuarioAutenticado.usuario_id)) throw new ErroHttp(403, 'Acesso permitido apenas ao próprio usuário');
+    next();
+});
+
 // Fechamento arquivado só pode ser consultado: bloqueia edição dele, das divergências e das observações.
 const validarFechamentoEditavel = rota('Erro ao validar fechamento', async (req, res, next) => {
     const result = await req.app.get('db').query(
@@ -70,6 +80,10 @@ async function validarOperadorDoPosto(pool, operadorId, postoId) {
     if (!result.rowCount) throw new ErroHttp(400, 'Operador não pertence a este posto');
 }
 
+// Diferença total de um fechamento: cartões (soma por empresa) mais o dinheiro em caixa.
+const sqlDiferencaFechamento = `COALESCE((SELECT SUM(fe.diferenca) FROM fechamento_empresa fe WHERE fe.fechamento_id = f.fechamento_id), 0)
+            + COALESCE(f.valor_dinheiro_declarado - f.valor_dinheiro_esperado, 0)`;
+
 const registrarLog = (client, fechamentoId, usuarioId, acao, campo, anterior, novo) => client.query(
     'INSERT INTO logs_auditoria (fechamento_id, usuario_id, acao, campo_alterado, valor_anterior, valor_novo) VALUES ($1, $2, $3, $4, $5, $6)',
     [fechamentoId, usuarioId, acao, campo.slice(0, 255), anterior, novo],
@@ -90,7 +104,7 @@ router.post('/auth/login', rota('Erro ao fazer login', async (req, res) => {
     if (!email || !senha) throw new ErroHttp(400, 'Email e senha são obrigatórios');
 
     const sql = `
-        SELECT usuario_id, nome, email, senha, ativo
+        SELECT usuario_id, nome, email, senha, ativo, perfil
         FROM usuarios
         WHERE email = $1;
     `;
@@ -102,15 +116,17 @@ router.post('/auth/login', rota('Erro ao fazer login', async (req, res) => {
         throw new ErroHttp(401, 'Email ou senha inválidos');
     }
 
-    // Gera o token de sessão
-    const token = tokenService.sign({ usuario_id: usuario.usuario_id, nome: usuario.nome, email: usuario.email });
+    // Gera o token de sessão; o perfil decide entre a área do gerente e a do administrador.
+    const token = tokenService.sign({ usuario_id: usuario.usuario_id, nome: usuario.nome, email: usuario.email, perfil: usuario.perfil });
+    await req.app.get('db').query('UPDATE usuarios SET ultimo_acesso = now() WHERE usuario_id = $1', [usuario.usuario_id]);
 
     res.json({
         token,
         usuario: {
             usuario_id: usuario.usuario_id,
             nome: usuario.nome,
-            email: usuario.email
+            email: usuario.email,
+            perfil: usuario.perfil
         }
     });
 }));
@@ -122,128 +138,28 @@ router.post('/auth/logout', (req,res) => {
 // As rotas de dados exigem um JWT emitido pelo endpoint de login.
 router.use(autenticar);
 router.use('/operadores', featureGestaoOperadores);
+router.use('/admin', adminRouter);
 
 //Postos
 
-router.get('/postos/:usuarioid', listar('Erro ao buscar postos do usuário',
+router.get('/postos/:usuarioid', somenteProprioUsuario('usuarioid'), listar('Erro ao buscar postos do usuário',
     `select p.posto_id as posto_id, p.nome as nome_posto, u.nome as nome_usuario
      from postos_usuarios pu
      inner join postos p on pu.posto_id = p.posto_id
      inner join usuarios u on pu.usuario_id = u.usuario_id
-     where u.usuario_id = $1 and p.ativo`,
+     where u.usuario_id = $1 and p.ativo
+     order by p.nome`,
     (req) => [req.params.usuarioid]));
 
-// O gerente escolhido e quem cadastrou passam a ter acesso ao novo posto.
-router.post('/postos', cadastrar(new CadastroPosto(), 'Erro ao cadastrar estabelecimento',
-    (req) => ({ ...req.body, usuarios: [req.body.usuario_id || req.usuarioAutenticado.usuario_id, req.usuarioAutenticado.usuario_id] }),
-    { '23503': new ErroHttp(400, 'Gerente responsável não encontrado') }));
-
-router.put('/postos/:postoId', validarAcessoPosto, rota('Erro ao editar estabelecimento', async (req, res) => {
-    const { nome, endereco } = req.body;
-    if (!nome?.trim()) throw new ErroHttp(400, 'Nome do estabelecimento é obrigatório');
-    // Sem endereço no corpo, mantém o endereço atual.
-    const result = await req.app.get('db').query(
-        'UPDATE postos SET nome = $1, endereco = COALESCE($2, endereco) WHERE posto_id = $3 RETURNING posto_id, nome, endereco, ativo',
-        [nome.trim(), endereco?.trim() || null, req.params.postoId],
-    );
-    res.json(result.rows[0]);
+// Módulos contratados pelo posto (o front usa para montar o menu).
+router.get('/postos/:postoId/modulos', validarAcessoPosto, rota('Erro ao carregar módulos do posto', async (req, res) => {
+    res.json(await modulosAtivos(req.app.get('db'), req.params.postoId));
 }));
 
-// Inativa o posto: some da lista dos gerentes e deixa de aceitar fechamentos, mas o histórico fica no banco.
-router.delete('/postos/:postoId', validarAcessoPosto, rota('Erro ao inativar estabelecimento', async (req, res) => {
-    const result = await req.app.get('db').query(
-        'UPDATE postos SET ativo = false WHERE posto_id = $1 RETURNING posto_id, nome, ativo',
-        [req.params.postoId],
-    );
-    res.json(result.rows[0]);
-}));
+//Usuários (cadastro, vínculos e status de gerentes ficam na área admin: src/adminRoutes.js)
 
-//Usuários
-
-router.get('/postos/:id/usuarios', listar('Erro ao buscar usuários do posto',
-    `select u.usuario_id, u.nome, u.email, u.created_at
-     from postos_usuarios pu
-     inner join usuarios u on pu.usuario_id = u.usuario_id
-     where pu.posto_id = $1`,
-    (req) => [req.params.id]));
-
-router.post('/postos/:id/usuarios', rota('Erro ao adicionar usuário ao posto', async (req, res) => {
-    const postoId = req.params.id;
-    const { nome, email, senha } = req.body;
-    const senhaHash = await bcrypt.hash(senha, 10);
-
-    const usuarioId = await transacao(req.app.get('db'), async (client) => {
-        // 1. Cria o usuário e já pega o id gerado com RETURNING
-        const insertUsuario = `
-            INSERT INTO usuarios (nome, email, senha)
-            VALUES ($1, $2, $3)
-            RETURNING usuario_id;
-        `;
-        const usuarioResult = await client.query(insertUsuario, [nome, email, senhaHash]);
-
-        // 2. Vincula esse usuário ao posto na tabela associativa
-        const insertVinculo = `
-            INSERT INTO postos_usuarios (posto_id, usuario_id)
-            VALUES ($1, $2);
-        `;
-        await client.query(insertVinculo, [postoId, usuarioResult.rows[0].usuario_id]);
-        return usuarioResult.rows[0].usuario_id;
-    });
-
-    res.status(201).json({ usuario_id: usuarioId, posto_id: postoId });
-}));
-
-router.delete('/postos/:id/usuarios/:usuarioId', rota('Erro ao remover usuário do posto', async (req, res) => {
-    const postoId = req.params.id;
-    const usuarioId = req.params.usuarioId;
-
-    const totalVinculos = await transacao(req.app.get('db'), async (client) => {
-        // 1. Remove o vínculo entre o usuário e esse posto
-        const deleteVinculo = `
-            DELETE FROM postos_usuarios
-            WHERE posto_id = $1 AND usuario_id = $2;
-        `;
-        await client.query(deleteVinculo, [postoId, usuarioId]);
-
-        // 2. Verifica se o usuário ainda está vinculado a algum outro posto
-        const checkVinculos = `
-            SELECT COUNT(*) AS total
-            FROM postos_usuarios
-            WHERE usuario_id = $1;
-        `;
-        const checkResult = await client.query(checkVinculos, [usuarioId]);
-        const total = parseInt(checkResult.rows[0].total, 10);
-
-        // 3. Se não sobrou nenhum vínculo, inativa o usuário
-        if (total === 0) {
-            await client.query(
-                `UPDATE usuarios SET ativo = false WHERE usuario_id = $1;`,
-                [usuarioId]
-            );
-        }
-        return total;
-    });
-
-    res.json({
-        message: 'Usuário removido do posto com sucesso',
-        usuario_inativado: totalVinculos === 0
-    });
-}));
-
-// Vincula um gerente já cadastrado e reativa o acesso dele, caso tenha sido inativado ao perder o último vínculo.
-router.post('/postos/:postoId/usuarios/:usuarioId', validarAcessoPosto, rota('Erro ao vincular usuário ao posto', async (req, res) => {
-    const result = await req.app.get('db').query(
-        `WITH vinculo AS (
-            INSERT INTO postos_usuarios (posto_id, usuario_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
-        )
-        UPDATE usuarios SET ativo = true WHERE usuario_id = $2 RETURNING usuario_id`,
-        [req.params.postoId, req.params.usuarioId],
-    );
-    res.status(201).json({ usuario_id: result.rows[0].usuario_id, posto_id: Number(req.params.postoId) });
-}, { '23503': new ErroHttp(404, 'Usuário não encontrado') }));
-
-router.get('/usuarios/:id', rota('Erro ao buscar usuário', async (req, res) => {
-    const sql = `SELECT usuario_id, nome, email, created_at
+router.get('/usuarios/:id', somenteProprioUsuario('id'), rota('Erro ao buscar usuário', async (req, res) => {
+    const sql = `SELECT usuario_id, nome, email, telefone, perfil, created_at
                  FROM usuarios
                  WHERE usuario_id = $1;`;
     const result = await req.app.get('db').query(sql, [req.params.id]);
@@ -251,7 +167,7 @@ router.get('/usuarios/:id', rota('Erro ao buscar usuário', async (req, res) => 
     res.json(result.rows[0]);
 }));
 
-router.put('/usuarios/:id', rota('Erro ao editar usuário', async (req, res) => {
+router.put('/usuarios/:id', somenteProprioUsuario('id'), rota('Erro ao editar usuário', async (req, res) => {
     const userId = req.params.id;
     const { nome, email, senha } = req.body;
     if (!nome?.trim() || !email?.trim()) throw new ErroHttp(400, 'Nome e email são obrigatórios');
@@ -281,8 +197,6 @@ router.put('/usuarios/:id', rota('Erro ao editar usuário', async (req, res) => 
         message: 'Usuário editado com sucesso',
     });
 }));
-
-router.patch('/usuarios/:id', alterarAtivo('usuarios', 'usuario_id', 'Usuário não encontrado'));
 
 
 //Empresas
@@ -319,7 +233,8 @@ const sqlMaquinas = `select m.maquina_id, m.empresa_id, m.nome as nome_maquina, 
 
 router.get('/postos/:id/maquinas', listar('Erro ao buscar máquinas do posto', `${sqlMaquinas} where e.posto_id = $1`, (req) => [req.params.id]));
 
-router.post('/maquinas', cadastrar(new CadastroMaquina(), 'Erro ao cadastrar máquina'));
+router.post('/maquinas', registrarAtividade((req, maquina) => `Cadastro da máquina ${maquina.nome}`, (req, maquina) => maquina.posto_id),
+    cadastrar(new CadastroMaquina(), 'Erro ao cadastrar máquina'));
 
 router.get('/maquinas/:id', listar('Erro ao listar máquina', `${sqlMaquinas} where m.maquina_id = $1`, (req) => [req.params.id]));
 
@@ -352,7 +267,8 @@ router.get('/operadores/posto/:id', listar('Erro ao listar operadores do posto',
      where e.posto_id = $1`,
     (req) => [req.params.id]));
 
-router.post('/operadores', cadastrar(new CadastroOperador(), 'Erro ao cadastrar operador'));
+router.post('/operadores', registrarAtividade((req, operador) => `Cadastro do operador ${operador.nome}`, (req, operador) => operador.posto_id),
+    cadastrar(new CadastroOperador(), 'Erro ao cadastrar operador'));
 
 router.get('/operadores/nome', listar('Erro ao buscar operador', 'select * from operadores where nome = $1', (req) => [req.query.nome]));
 
@@ -383,9 +299,7 @@ router.get('/postos/:postoId/fechamentos/dashboard', validarAcessoPosto, rota('E
             FROM fechamentos f LEFT JOIN fechamento_empresa fe USING (fechamento_id)
             LEFT JOIN empresas e USING (empresa_id)
             WHERE f.posto_id = $1 AND date_trunc('month', f.data_referencia) = date_trunc('month', CURRENT_DATE)`, [req.params.postoId]),
-        pool.query(`SELECT f.data_referencia::text AS data,
-            COALESCE((SELECT SUM(fe.diferenca) FROM fechamento_empresa fe WHERE fe.fechamento_id = f.fechamento_id), 0)
-            + COALESCE(f.valor_dinheiro_declarado - f.valor_dinheiro_esperado, 0) AS diferenca
+        pool.query(`SELECT f.data_referencia::text AS data, ${sqlDiferencaFechamento} AS diferenca
             FROM fechamentos f
             WHERE f.posto_id = $1 AND date_trunc('month', f.data_referencia) = date_trunc('month', CURRENT_DATE)
             ORDER BY f.data_referencia`, [req.params.postoId]),
@@ -593,5 +507,80 @@ router.put('/postos/:postoId/fechamentos/:fechamentoId/observacoes/:id', fechame
 
 router.delete('/postos/:postoId/fechamentos/:fechamentoId/observacoes/:id', fechamentoEditavel,
     excluirDoFechamento('observacoes', 'observacao_id', 'Observação não encontrada', 'Observação excluída com sucesso'));
+
+// Rede (módulo Multi-unidade): compara os postos do gerente que têm o módulo ativo.
+
+async function postosDaRede(pool, usuarioId) {
+    const result = await pool.query(`SELECT p.posto_id, p.nome, p.cidade, p.uf, p.endereco FROM postos p
+        JOIN postos_usuarios pu USING (posto_id)
+        JOIN postos_modulos pm ON pm.posto_id = p.posto_id AND pm.modulo = 'multi_unidade' AND pm.ativo
+        WHERE pu.usuario_id = $1 AND p.ativo ORDER BY p.nome`, [usuarioId]);
+    if (!result.rowCount) throw new ErroHttp(404, 'O módulo Multi-unidade não está ativo em nenhum dos seus postos');
+    return result.rows;
+}
+
+// Fechamentos não arquivados dos últimos N dias, do mais recente ao mais antigo, agrupados por posto.
+async function fechamentosDaRede(pool, postos, dias) {
+    const result = await pool.query(`SELECT f.posto_id, f.fechamento_id, f.data_referencia::text AS data, f.status, f.created_at,
+            ${sqlDiferencaFechamento} AS diferenca,
+            COALESCE((SELECT SUM(fe.valor_recebido) FROM fechamento_empresa fe WHERE fe.fechamento_id = f.fechamento_id), 0)
+            + COALESCE(f.valor_dinheiro_declarado, 0) AS total
+        FROM fechamentos f
+        WHERE f.posto_id = ANY($1::int[]) AND f.status <> 'arquivado' AND f.data_referencia > CURRENT_DATE - $2::int
+        ORDER BY f.data_referencia DESC`, [postos.map((posto) => posto.posto_id), dias]);
+    const porPosto = new Map(postos.map((posto) => [posto.posto_id, []]));
+    for (const fechamento of result.rows) porPosto.get(fechamento.posto_id).push(fechamento);
+    return porPosto;
+}
+
+function resumirPosto(fechamentos) {
+    const soma = (filtro) => fechamentos.filter(filtro).reduce((total, f) => total + Number(f.diferenca), 0);
+    const saldo = soma(() => true);
+    return {
+        fechamentos: fechamentos.length,
+        total: fechamentos.reduce((total, f) => total + Number(f.total), 0),
+        sobra: soma((f) => Number(f.diferenca) > 0),
+        falta: soma((f) => Number(f.diferenca) < 0),
+        saldo,
+        status: productVariability.classificarSaldo(saldo),
+    };
+}
+
+router.get('/rede/comparativo', rota('Erro ao carregar o comparativo', async (req, res) => {
+    const dias = [7, 30, 90].includes(Number(req.query.dias)) ? Number(req.query.dias) : 30;
+    const pool = req.app.get('db');
+    const postos = await postosDaRede(pool, req.usuarioAutenticado.usuario_id);
+    const fechamentos = await fechamentosDaRede(pool, postos, dias);
+    const ranking = postos.map((posto) => ({ ...posto, ...resumirPosto(fechamentos.get(posto.posto_id)) })).sort((a, b) => b.saldo - a.saldo);
+    res.json({ dias, limite: productVariability.divergenceAlertLimit, postos: ranking });
+}));
+
+router.get('/rede/alertas', rota('Erro ao carregar os alertas', async (req, res) => {
+    const pool = req.app.get('db');
+    const postos = await postosDaRede(pool, req.usuarioAutenticado.usuario_id);
+    const [fechamentos, datas] = await Promise.all([
+        fechamentosDaRede(pool, postos, 30),
+        pool.query(`SELECT CURRENT_DATE::text AS hoje, (CURRENT_DATE - 1)::text AS ontem, (CURRENT_DATE - 7)::text AS "inicioSemana"`),
+    ]);
+    res.json(gerarAlertas(postos, fechamentos, { limite: productVariability.divergenceAlertLimit, ...datas.rows[0] }));
+}));
+
+router.get('/rede/postos/:postoId', rota('Erro ao carregar o detalhamento', async (req, res) => {
+    const pool = req.app.get('db');
+    const posto = (await postosDaRede(pool, req.usuarioAutenticado.usuario_id)).find((item) => String(item.posto_id) === req.params.postoId);
+    if (!posto) throw new ErroHttp(404, 'Posto fora da sua rede Multi-unidade');
+    const [fechamentos, gerente] = await Promise.all([
+        fechamentosDaRede(pool, [posto], 30),
+        pool.query(`SELECT u.nome FROM postos_usuarios pu JOIN usuarios u USING (usuario_id)
+            WHERE pu.posto_id = $1 AND u.perfil = 'gerente' AND u.ativo ORDER BY pu.created_at LIMIT 1`, [posto.posto_id]),
+    ]);
+    const lista = fechamentos.get(posto.posto_id);
+    res.json({
+        posto: { ...posto, gerente: gerente.rows[0]?.nome ?? null },
+        ...resumirPosto(lista),
+        diario: [...lista].reverse().map(({ data, diferenca }) => ({ data, diferenca })),
+        ultimos: lista.slice(0, 6),
+    });
+}));
 
 export default router;

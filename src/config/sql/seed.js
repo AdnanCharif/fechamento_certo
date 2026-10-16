@@ -1,25 +1,26 @@
 import 'dotenv/config';
 import bcrypt from 'bcrypt';
 import pool from '../db.js';
+import { Posto } from '../../domain/entities.js';
 
 const postos = [
-  { nome: 'Meu Posto - Matriz', endereco: 'Av. das Torres, 1200, Curitiba/PR' },
-  { nome: 'Posto Bela Vista', endereco: 'Rua Getúlio Vargas, 450, Curitiba/PR' },
-  { nome: 'Posto Rodovia Sul', endereco: 'BR-116, Km 32, Curitiba/PR' },
+  { nome: 'Meu Posto - Matriz', telefone: '(41) 3333-1200', cep: '82590-300', logradouro: 'Av. das Torres', numero: '1200', bairro: 'Jardim Botânico', cidade: 'Curitiba', uf: 'PR', plano: 'pro_premium' },
+  { nome: 'Posto Bela Vista', telefone: '(41) 3333-0450', cep: '80060-010', logradouro: 'Rua Getúlio Vargas', numero: '450', bairro: 'Rebouças', cidade: 'Curitiba', uf: 'PR', plano: 'basico' },
+  { nome: 'Posto Rodovia Sul', telefone: '(41) 3333-0032', cep: '83820-000', logradouro: 'BR-116, Km 32', numero: 's/n', bairro: 'Zona Rural', cidade: 'Fazenda Rio Grande', uf: 'PR', plano: 'pro_premium' },
 ];
 
 const empresasPorPosto = [
   [
-    { nome: 'Posto Max', cnpj: '12.345.678/0001-01', tipo: 'combustivel' },
-    { nome: 'Dia a Dia', cnpj: '12.345.678/0002-02', tipo: 'conveniencia' },
+    { nome: 'Posto Max', cnpj: '12.345.678/0001-01', tipo: 'combustivel', inscricao_estadual: '101.202.303-01' },
+    { nome: 'Dia a Dia', cnpj: '12.345.678/0002-02', tipo: 'conveniencia', inscricao_estadual: '101.202.303-02' },
   ],
   [
-    { nome: 'Bela Vista Fuel', cnpj: '23.456.789/0001-03', tipo: 'combustivel' },
-    { nome: 'Mercadinho BV', cnpj: '23.456.789/0002-04', tipo: 'conveniencia' },
+    { nome: 'Bela Vista Fuel', cnpj: '23.456.789/0001-03', tipo: 'combustivel', inscricao_estadual: '202.303.404-03' },
+    { nome: 'Mercadinho BV', cnpj: '23.456.789/0002-04', tipo: 'conveniencia', inscricao_estadual: '202.303.404-04' },
   ],
   [
-    { nome: 'Rodovia Combustíveis', cnpj: '34.567.890/0001-05', tipo: 'combustivel' },
-    { nome: 'Parada Sul Conveniência', cnpj: '34.567.890/0002-06', tipo: 'conveniencia' },
+    { nome: 'Rodovia Combustíveis', cnpj: '34.567.890/0001-05', tipo: 'combustivel', inscricao_estadual: '303.404.505-05' },
+    { nome: 'Parada Sul Conveniência', cnpj: '34.567.890/0002-06', tipo: 'conveniencia', inscricao_estadual: '303.404.505-06' },
   ],
 ];
 
@@ -40,7 +41,17 @@ const nomesOperadores = [
   'Renata Moreira', 'Simone Dias', 'Tatiane Freitas', 'Priscila Nunes', 'Amanda Duarte',
 ];
 
-const datasFechamentoDemo = ['2026-10-01', '2026-10-02', '2026-10-03'];
+// Fechamentos de demonstração nos 10 dias até anteontem (o de ontem fica pendente, para aparecer nos alertas).
+const dataLocal = (diasAtras) => new Date(Date.now() - diasAtras * 86400000).toLocaleDateString('sv-SE');
+const datasFechamentoDemo = Array.from({ length: 10 }, (_, i) => dataLocal(11 - i));
+
+// Diferença do dinheiro em caixa por posto e dia: a Matriz termina com sobra,
+// a Bela Vista oscila e a Rodovia Sul acumula falta no fim do período.
+const diferencaDinheiroDemo = [
+  [0, -150, 0, 0, 400, 0, 0, 0, 0, 0],
+  [0, -150, 0, 0, -180, 0, 0, -180, 0, 0],
+  [0, -150, 0, 0, 0, 0, -650, -650, -650, -650],
+];
 
 async function executarSeed() {
   const senha = process.env.SEED_MANAGER_PASSWORD;
@@ -51,6 +62,8 @@ async function executarSeed() {
   const email = process.env.SEED_MANAGER_EMAIL || 'gerente.demo@unecaixas.local';
   const nome = process.env.SEED_MANAGER_NAME || 'Gerente de Demonstração';
   const hashSenha = await bcrypt.hash(senha, 10);
+  const emailAdmin = process.env.SEED_ADMIN_EMAIL || 'admin@fechamentocerto.local';
+  const hashSenhaAdmin = await bcrypt.hash(process.env.SEED_ADMIN_PASSWORD || senha, 10);
   const client = await pool.connect();
   let etapa = 'iniciar transação';
 
@@ -73,18 +86,38 @@ async function executarSeed() {
         postoId = existing.rows[0]?.posto_id;
       }
       if (!postoId) throw new Error(`Não foi possível obter o posto: ${posto.nome}`);
+      // Endereço em campos, telefone e plano só são preenchidos se o posto ainda não os tiver.
+      await client.query(
+        `UPDATE postos SET telefone = $2, cep = $3, logradouro = $4, numero = $5, bairro = $6, cidade = $7, uf = $8, plano = $9, endereco = $10
+         WHERE posto_id = $1 AND cidade IS NULL`,
+        [postoId, posto.telefone, posto.cep, posto.logradouro, posto.numero, posto.bairro, posto.cidade, posto.uf, posto.plano, new Posto(posto).enderecoCompleto()],
+      );
+      // Módulo Multi-unidade ligado para a demonstração do comparativo; o administrador pode desligar.
+      await client.query(
+        `INSERT INTO postos_modulos (posto_id, modulo) VALUES ($1, 'multi_unidade'), ($1, 'relatorios_avancados')
+         ON CONFLICT (posto_id, modulo) DO NOTHING`,
+        [postoId],
+      );
       postoIds.push(postoId);
     }
 
     etapa = 'criar usuário gerente';
     const managerResult = await client.query(
-      `INSERT INTO usuarios (nome, email, senha, ativo)
-       VALUES ($1, $2, $3, true)
+      `INSERT INTO usuarios (nome, email, senha, ativo, perfil, telefone)
+       VALUES ($1, $2, $3, true, 'gerente', '(41) 99999-1111')
        ON CONFLICT (email) DO UPDATE SET nome = EXCLUDED.nome, senha = EXCLUDED.senha, ativo = true
        RETURNING usuario_id`,
       [nome, email, hashSenha],
     );
     const usuarioId = managerResult.rows[0].usuario_id;
+
+    etapa = 'criar usuário administrador';
+    await client.query(
+      `INSERT INTO usuarios (nome, email, senha, ativo, perfil)
+       VALUES ('Suporte Certo', $1, $2, true, 'admin')
+       ON CONFLICT (email) DO UPDATE SET senha = EXCLUDED.senha, ativo = true, perfil = 'admin'`,
+      [emailAdmin, hashSenhaAdmin],
+    );
 
     for (const postoId of postoIds) {
       etapa = `vincular gerente ao posto ${postoId}`;
@@ -100,11 +133,12 @@ async function executarSeed() {
       for (const empresa of empresasPorPosto[postoIndex]) {
         etapa = `inserir/consultar empresa ${empresa.nome}`;
         const empresaResult = await client.query(
-          `INSERT INTO empresas (posto_id, nome, cnpj, tipo)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (cnpj) DO UPDATE SET posto_id = EXCLUDED.posto_id, nome = EXCLUDED.nome, tipo = EXCLUDED.tipo
+          `INSERT INTO empresas (posto_id, nome, cnpj, tipo, inscricao_estadual)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (cnpj) DO UPDATE SET posto_id = EXCLUDED.posto_id, nome = EXCLUDED.nome, tipo = EXCLUDED.tipo,
+             inscricao_estadual = COALESCE(empresas.inscricao_estadual, EXCLUDED.inscricao_estadual)
            RETURNING empresa_id`,
-          [postoIds[postoIndex], empresa.nome, empresa.cnpj, empresa.tipo],
+          [postoIds[postoIndex], empresa.nome, empresa.cnpj, empresa.tipo, empresa.inscricao_estadual],
         );
         const empresaId = empresaResult.rows[0].empresa_id;
 
@@ -131,8 +165,8 @@ async function executarSeed() {
       }
     }
 
-    // Exemplos para as tabelas operacionais do fechamento. Datas fixas e a
-    // chave UNIQUE (posto_id, data_referencia) tornam esta parte idempotente.
+    // Exemplos para as tabelas operacionais do fechamento. A chave UNIQUE
+    // (posto_id, data_referencia) impede duplicar uma data que já tenha fechamento.
     for (let postoIndex = 0; postoIndex < postoIds.length; postoIndex += 1) {
       const postoId = postoIds[postoIndex];
       const empresasResult = await client.query(
@@ -143,8 +177,9 @@ async function executarSeed() {
       for (let diaIndex = 0; diaIndex < datasFechamentoDemo.length; diaIndex += 1) {
         const dataReferencia = datasFechamentoDemo[diaIndex];
         const dinheiroEsperado = 1200 + postoIndex * 100;
-        const dinheiroDeclarado = diaIndex === 1 ? dinheiroEsperado - 150 : dinheiroEsperado;
-        const status = diaIndex === 1 ? 'com_divergencia' : 'ok';
+        const dinheiroDeclarado = dinheiroEsperado + diferencaDinheiroDemo[postoIndex][diaIndex];
+        // As máquinas só têm diferença no segundo dia (ver abaixo).
+        const status = diaIndex === 1 || dinheiroDeclarado !== dinheiroEsperado ? 'com_divergencia' : 'ok';
         etapa = `criar fechamento de demonstração do posto ${postoId} em ${dataReferencia}`;
         const fechamentoInsert = await client.query(
           `INSERT INTO fechamentos
@@ -253,8 +288,8 @@ async function executarSeed() {
 
     await client.query('COMMIT');
     console.log('Seed concluída. Dados-base e fechamentos de demonstração inseridos sem duplicar datas existentes.');
-    console.log(`Usuário de acesso: ${email}`);
-    console.log('A senha usada foi lida de SEED_MANAGER_PASSWORD e não é exibida.');
+    console.log(`Gerente: ${email} (senha de SEED_MANAGER_PASSWORD)`);
+    console.log(`Administrador: ${emailAdmin} (senha de SEED_ADMIN_PASSWORD ou, se vazia, a mesma do gerente)`);
   } catch (error) {
     await client.query('ROLLBACK');
     throw new Error(`${etapa}: ${error.message}`, { cause: error });

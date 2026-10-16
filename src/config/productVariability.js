@@ -11,6 +11,12 @@ export class ProductVariability {
 
   isDivergenceCritical(value) { return this.divergenceAlertLimit > 0 && Math.abs(Number(value)) >= this.divergenceAlertLimit; }
 
+  // Saldo de um posto no período: falta maior que o limite pede atenção; maior que 10x o limite é crítica.
+  classificarSaldo(saldo) {
+    if (!this.divergenceAlertLimit || Number(saldo) >= -this.divergenceAlertLimit) return 'ok';
+    return Number(saldo) <= -this.divergenceAlertLimit * 10 ? 'critico' : 'atencao';
+  }
+
   toJSON() {
     return {
       pontosDeVariacao: {

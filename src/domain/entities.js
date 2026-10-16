@@ -1,21 +1,32 @@
 // Entidades do domínio Une Caixas. Mantêm os dados e regras básicas de cada conceito.
 export class Usuario {
-  constructor({ usuario_id = null, nome, email, senha = null, ativo = true, created_at = null } = {}) {
-    Object.assign(this, { usuario_id, nome, email, senha, ativo, created_at });
+  constructor({ usuario_id = null, nome, email, senha = null, telefone = null, perfil = 'gerente', ativo = true, ultimo_acesso = null, created_at = null } = {}) {
+    Object.assign(this, { usuario_id, nome, email, senha, telefone, perfil, ativo, ultimo_acesso, created_at });
   }
   validar() { return Boolean(this.nome?.trim() && this.email?.trim()); }
   desativar() { this.ativo = false; }
+  ehAdmin() { return this.perfil === 'admin'; }
 }
 
 export class Posto {
-  constructor({ posto_id = null, nome, endereco = null, ativo = true, created_at = null } = {}) { Object.assign(this, { posto_id, nome, endereco, ativo, created_at }); }
+  constructor({ posto_id = null, nome, endereco = null, telefone = null, cep = null, logradouro = null, numero = null, bairro = null, cidade = null, uf = null, complemento = null, plano = 'basico', ativo = true, created_at = null } = {}) {
+    Object.assign(this, { posto_id, nome, endereco, telefone, cep, logradouro, numero, bairro, cidade, uf, complemento, plano, ativo, created_at });
+  }
   validar() { return Boolean(this.nome?.trim()); }
   inativar() { this.ativo = false; }
+  // Junta os campos do endereço numa linha ("Av. Brasil, 1500 - Sala 2 - Centro - São Paulo/SP - 01000-000").
+  enderecoCompleto() {
+    const rua = [this.logradouro, this.numero].map((parte) => parte?.trim()).filter(Boolean).join(', ');
+    const cidade = [this.cidade?.trim(), this.uf?.trim().toUpperCase()].filter(Boolean).join('/');
+    return [rua, this.complemento?.trim(), this.bairro?.trim(), cidade, this.cep?.trim()].filter(Boolean).join(' - ') || null;
+  }
 }
 
 export class Empresa {
-  constructor({ empresa_id = null, posto_id, nome, cnpj, tipo, created_at = null } = {}) { Object.assign(this, { empresa_id, posto_id, nome, cnpj, tipo, created_at }); }
-  validar() { return Boolean(this.posto_id && this.nome?.trim() && this.cnpj?.trim() && ['combustivel', 'conveniencia'].includes(this.tipo)); }
+  constructor({ empresa_id = null, posto_id, nome, cnpj, tipo, inscricao_estadual = null, created_at = null } = {}) { Object.assign(this, { empresa_id, posto_id, nome, cnpj, tipo, inscricao_estadual, created_at }); }
+  validar() { return Boolean(this.posto_id) && this.dadosValidos(); }
+  // Validação sem o posto, usada quando a empresa é cadastrada junto com um posto novo.
+  dadosValidos() { return Boolean(this.nome?.trim() && this.cnpj?.trim() && ['combustivel', 'conveniencia'].includes(this.tipo)); }
 }
 
 export class Maquina {
