@@ -12,18 +12,24 @@
 1. `CadastroEmpresa`;
 2. `CadastroMaquina`;
 3. `CadastroOperador`;
-4. `CadastroPosto` (grava o posto e os vínculos com os gerentes na mesma transação).
+4. `CadastroPosto` (grava o posto, as duas empresas e o gerente responsável na mesma transação).
 
-Os quatro fluxos são chamados pelas rotas POST correspondentes.
+Os quatro fluxos são chamados pelas rotas POST correspondentes; o de posto fica na área admin (`POST /admin/estabelecimentos`).
 
-## Strategy — 4 exemplos
+## Strategy — 7 exemplos
 
-O contrato `validate(data)` é implementado por estratégias específicas e injetado nos fluxos Template Method:
+**Validação.** O contrato `validate(data)` é implementado por estratégias específicas e injetado nos fluxos Template Method:
 
 1. `EmpresaValidationStrategy`;
 2. `MaquinaValidationStrategy`;
 3. `OperadorValidationStrategy`;
-4. `PostoValidationStrategy`.
+4. `PostoValidationStrategy` (também usada na edição do posto, fora do Template Method).
+
+**Alertas da rede** (`src/patterns/strategy/RegrasDeAlerta.js`). O contrato `avaliar(fechamentos, contexto)` devolve um alerta ou `null`; `gerarAlertas` aplica a lista de regras a cada posto sem conhecer nenhuma delas, então incluir uma regra é só acrescentar uma classe à lista:
+
+5. `FaltaAcumuladaRule`: falta somada nos últimos 7 dias maior que 10× o limite de alerta (crítico);
+6. `DivergenciasRecorrentesRule`: os últimos 3 fechamentos com diferença maior que o limite (atenção);
+7. `FechamentoPendenteRule`: o fechamento de ontem ainda não foi registrado (atenção).
 
 ## Classes de domínio
 
