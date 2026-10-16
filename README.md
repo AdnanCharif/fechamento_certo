@@ -3,7 +3,13 @@
 ## 0. Para rodar:
     npm install
     cp .env.example .env   **e preencher os valores**
+    (rodar src/config/sql/schema.sql no banco; pode rodar de novo a cada atualização)
+    npm run seed           **cria os postos de demonstração, o gerente e o administrador**
     npm run dev
+
+Acessos criados pela seed:
+- **Administrador** (área Fechamento Certo — Internal Admin): `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` (sem senha própria, usa a do gerente).
+- **Gerente**: `SEED_MANAGER_EMAIL` / `SEED_MANAGER_PASSWORD`. Os 3 postos da seed vêm com o módulo Multi-unidade ligado.
 
 ## 1. Área de atuação (Design Thinking)
 
