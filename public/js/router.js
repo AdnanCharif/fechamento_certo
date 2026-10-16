@@ -1,11 +1,13 @@
 // Navegação entre telas. Cada tela (js/telas/*.js) exporta um objeto com:
-//   pages:   { nome: { render, load?, enter?(id), afterRender?, nav?, guard?, standalone?, fallback? } }
+//   pages:   { nome: { render, load?, enter?(id), afterRender?, nav?, guard?, standalone?, fallback?, perfil? } }
 //   actions: { 'data-action': (id, botao) => ... }   cliques em [data-action]
 //   forms:   { 'id-do-form': (formData, form) => ... } envio de formulários
-//   inputs:  { 'id-do-campo': (campo) => ... }        digitação em campos
-import { $, $$, maskCnpj } from './utils.js';
+//   inputs:  { 'id-do-campo' ou data-input: (campo) => ... } digitação e mudança em campos
+// perfil: 'admin' (área administrativa), 'todos' ou, se omitido, gerente.
+import { $, $$, masks } from './utils.js';
 import { state } from './state.js';
 import { shell, toast } from './components.js';
+import { homePage, isAdmin } from './menu.js';
 
 const pages = {};
 const actions = {};
@@ -23,10 +25,13 @@ export function registerScreens(...screens) {
 
 export const getPage = (name) => pages[name];
 
+const allowed = (page) => page && (page.perfil === 'todos' || (page.perfil || 'gerente') === (isAdmin() ? 'admin' : 'gerente'));
+
 export async function go(name) {
-  const page = pages[name] || pages.dashboard;
-  if (page.guard && !page.guard()) return;
-  state.page = pages[name] ? name : 'dashboard';
+  if (!allowed(pages[name])) name = homePage();
+  const page = pages[name];
+  if (page.guard && !page.guard()) return go(homePage());
+  state.page = name;
   $$('.nav-link').forEach((item) => item.classList.toggle('active', item.dataset.page === (page.nav || state.page)));
   try { await page.load?.(); } catch (error) { toast(error.message, true); }
   render();
@@ -40,10 +45,10 @@ export function enterPage(name, id) {
 }
 
 export function render() {
-  const page = pages[state.page] || pages.dashboard;
+  const page = pages[state.page] || pages[homePage()];
   $('#page-root').innerHTML = state.postId || page.standalone
     ? page.render()
-    : `${shell('Nenhum posto vinculado')}<section class="surface empty-state">Peça a um administrador para vincular seu usuário a um posto.</section>`;
+    : `${shell('Nenhum posto vinculado')}<section class="surface empty-state">Peça ao suporte para vincular seu usuário a um posto.</section>`;
   page.afterRender?.();
 }
 
@@ -70,8 +75,9 @@ export function bindPageEvents(root) {
     if (!handler) return;
     try { await handler(new FormData(event.target), event.target); } catch (error) { toast(error.message, true); }
   });
-  root.addEventListener('input', (event) => {
-    if (event.target.dataset.mask === 'cnpj') event.target.value = maskCnpj(event.target.value);
-    inputs[event.target.id]?.(event.target);
+  root.addEventListener('input', async (event) => {
+    const mask = masks[event.target.dataset.mask];
+    if (mask) event.target.value = mask(event.target.value);
+    try { await (inputs[event.target.id] || inputs[event.target.dataset.input])?.(event.target); } catch (error) { toast(error.message, true); }
   });
 }

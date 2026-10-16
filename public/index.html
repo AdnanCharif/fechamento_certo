@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Fechamento Certo</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%E2%9B%BD%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -12,7 +13,7 @@
       <div class="login-mark" aria-hidden="true">⛽</div>
       <h1>Fechamento Certo</h1>
       <p class="login-subtitle">Sistema de Conciliação e Fechamento de Caixa</p>
-      <label for="login-email">E-mail do Gestor</label>
+      <label for="login-email">E-mail</label>
       <input id="login-email" type="email" autocomplete="username" required placeholder="seuemail@empresa.com.br">
       <label for="login-senha">Senha</label>
       <input id="login-senha" type="password" autocomplete="current-password" required placeholder="Sua senha">
@@ -25,20 +26,11 @@
 
   <div id="application" class="application" hidden>
     <aside class="sidebar">
-      <a href="#dashboard" class="brand" data-page="dashboard"><span class="brand-icon">⛽</span><span><strong>Fechamento Certo</strong><small>POSTO &amp; CONVENIÊNCIA</small></span></a>
+      <a href="#inicio" class="brand"><span class="brand-icon">⛽</span><span><strong>Fechamento Certo</strong><small id="brand-subtitle">POSTO ÚNICO</small></span></a>
       <label class="post-switcher">Posto atual<select id="post-select" aria-label="Posto atual"></select></label>
-      <nav id="main-nav" class="main-nav" aria-label="Navegação principal">
-        <button data-page="dashboard" class="nav-link active"><span>▦</span>Dashboard</button>
-        <button data-page="closing" class="nav-link"><span>⊕</span>Novo Fechamento</button>
-        <button data-page="history" class="nav-link"><span>◴</span>Histórico</button>
-        <button data-page="machines" class="nav-link"><span>▤</span>Máquinas</button>
-        <button data-page="operators" class="nav-link" id="operators-nav"><span>☺</span>Operadores</button>
-        <button data-page="settings" class="nav-link"><span>⚙</span>Configurações</button>
-        <p class="nav-section">Administração</p>
-        <button data-page="establishments" class="nav-link"><span>⌂</span>Estabelecimentos</button>
-        <button data-page="managers" class="nav-link"><span>♟</span>Gerentes</button>
-      </nav>
-      <button class="account-card" data-page="profile"><span class="avatar" id="account-avatar">G</span><span><strong id="account-name">Gestor</strong><small>Gerente Geral</small></span></button>
+      <!-- Itens montados por js/menu.js conforme o perfil e os módulos do posto -->
+      <nav id="main-nav" class="main-nav" aria-label="Navegação principal"></nav>
+      <button class="account-card" data-page="profile"><span class="avatar" id="account-avatar">G</span><span><strong id="account-name">Gestor</strong><small id="account-role">Gerente Geral</small></span></button>
       <button id="logout-button" class="logout-link">Sair da conta</button>
     </aside>
     <main class="main-content">

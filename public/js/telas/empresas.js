@@ -17,7 +17,7 @@ function renderSettings() {
       + field('Tipo *', `<select name="tipo" required><option value="combustivel" ${editing?.tipo === 'combustivel' ? 'selected' : ''}>Posto de Combustível</option><option value="conveniencia" ${editing?.tipo === 'conveniencia' ? 'selected' : ''}>Loja de Conveniência</option></select>`),
   });
   return `${shell('Configurações do Posto', 'Visualize os dados do posto e gerencie as empresas (CNPJs) vinculadas.', '<button class="success" data-action="new-company">⊕ &nbsp;Nova Empresa</button>')}
-    <section class="surface"><h2>Dados do Posto</h2><div class="profile-grid">${field('Nome do Posto', `<input value="${esc(post?.nome_posto)}" disabled>`)}${field('Gerente logado', `<input value="${esc(state.user?.nome)}" disabled>`)}</div><p class="helper">Para alterar nome e endereço do posto, use Administração › Estabelecimentos.</p></section>
+    <section class="surface"><h2>Dados do Posto</h2><div class="profile-grid">${field('Nome do Posto', `<input value="${esc(post?.nome_posto)}" disabled>`)}${field('Gerente logado', `<input value="${esc(state.user?.nome)}" disabled>`)}</div><p class="helper">Nome, endereço, plano e módulos do posto são mantidos pelo suporte (área administrativa).</p></section>
     <h2 class="section-title">Empresas Vinculadas</h2>
     <div class="split-layout"><section class="surface">${dataTable(['Razão Social', 'CNPJ', 'Tipo', 'Ações'], rows, 'Nenhuma empresa cadastrada.')}</section>${form}</div>`;
 }
