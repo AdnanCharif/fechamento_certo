@@ -7,6 +7,8 @@ import { shell, field, toast, differencePill, differenceClass, operatorOptions }
 import { go, render } from '../router.js';
 
 const steps = ['Data de Competência', 'Cartões e Dinheiro', 'Investigar Divergências', 'Resumo do Fechamento'];
+// Chave do dinheiro em caixa nos mapas de causas e operadores (as máquinas usam o maquina_id).
+const cashKey = 'dinheiro';
 
 function renderClosing() {
   const step = state.closing.step;
@@ -31,14 +33,19 @@ function valuesStep() {
     <div class="form-actions spread"><button class="secondary" data-action="closing-back">← Voltar</button><button class="primary" data-action="closing-next">Próximo: Investigar Divergências&nbsp; →</button></div></section>`;
 }
 
+// Campos de causa e operador de uma divergência, ligados por bindClosingValues pela chave (máquina ou dinheiro).
+function investigationFields(key) {
+  return `<label>Observação / Causa<input data-cause="${key}" value="${esc(state.closing.causes[key] || '')}" placeholder="Descreva a causa ou conferência"></label>${state.operatorsEnabled ? `<label>Operador responsável<select data-operator="${key}">${operatorOptions(state.closing.operators[key], 'Selecionar operador...')}</select></label>` : ''}`;
+}
+
 function divergenceStep() {
   const entries = getEntries().filter((entry) => entry.received !== entry.expected);
   const cashDiff = Number(state.closing.moneyReceived || 0) - Number(state.closing.moneyExpected || 0);
   return `<section class="closing-work"><h2>Resumo por Empresa / CNPJ</h2><div class="summary-by-company">${companyTotals(getEntries()).map((company) => `<article class="metric-card ${company.difference < 0 ? 'negative' : 'positive'}"><div class="metric-label"><span>${esc(company.nome)}<small class="block">CNPJ: ${esc(company.cnpj)}</small></span>${differencePill(company.difference)}</div><div class="metric-label">Total Esperado <b>${money(company.expected)}</b></div><div class="metric-label">Total Recebido <b>${money(company.received)}</b></div><strong>${signedMoney(company.difference)}</strong></article>`).join('')}</div>
     <h2>Divergências Encontradas</h2>${entries.map((entry) => {
       const difference = entry.received - entry.expected;
-      return `<article class="surface divergence-card"><div class="surface-heading"><h3>${esc(entry.machine.nome_maquina)} · ${esc(entry.company?.nome || 'Empresa')}</h3>${differencePill(difference)}</div><div class="detail-lines"><span>Esperado <b>${money(entry.expected)}</b></span><span>Recebido <b>${money(entry.received)}</b></span><strong class="${differenceClass(difference)}">Diferença: ${money(difference)}</strong></div><label>Observação / Causa<input data-cause="${entry.machine.maquina_id}" value="${esc(state.closing.causes[entry.machine.maquina_id] || '')}" placeholder="Descreva a causa ou conferência"></label>${state.operatorsEnabled ? `<label>Operador responsável<select data-operator="${entry.machine.maquina_id}">${operatorOptions(state.closing.operators[entry.machine.maquina_id], 'Selecionar operador...')}</select></label>` : ''}<button class="text-button" data-page="divergence" data-id="${entry.machine.maquina_id}">Ver detalhe da divergência</button></article>`;
-    }).join('')}${cashDiff !== 0 ? `<article class="surface divergence-card"><div class="surface-heading"><h3>Dinheiro em Caixa</h3>${differencePill(cashDiff)}</div><div class="detail-lines"><span>Declarado <b>${money(state.closing.moneyReceived)}</b></span><span>Esperado <b>${money(state.closing.moneyExpected)}</b></span><strong class="${differenceClass(cashDiff)}">Diferença: ${money(cashDiff)}</strong></div></article>` : ''}
+      return `<article class="surface divergence-card"><div class="surface-heading"><h3>${esc(entry.machine.nome_maquina)} · ${esc(entry.company?.nome || 'Empresa')}</h3>${differencePill(difference)}</div><div class="detail-lines"><span>Esperado <b>${money(entry.expected)}</b></span><span>Recebido <b>${money(entry.received)}</b></span><strong class="${differenceClass(difference)}">Diferença: ${money(difference)}</strong></div>${investigationFields(entry.machine.maquina_id)}<button class="text-button" data-page="divergence" data-id="${entry.machine.maquina_id}">Ver detalhe da divergência</button></article>`;
+    }).join('')}${cashDiff !== 0 ? `<article class="surface divergence-card"><div class="surface-heading"><h3>Dinheiro em Caixa</h3>${differencePill(cashDiff)}</div><div class="detail-lines"><span>Declarado <b>${money(state.closing.moneyReceived)}</b></span><span>Esperado <b>${money(state.closing.moneyExpected)}</b></span><strong class="${differenceClass(cashDiff)}">Diferença: ${money(cashDiff)}</strong></div>${investigationFields(cashKey)}</article>` : ''}
     ${!entries.length && !cashDiff ? '<p class="empty-state">Nenhuma divergência: todos os valores conferem.</p>' : ''}
     <div class="form-actions spread"><button class="secondary" data-action="closing-back">← Voltar</button><button class="primary" data-action="closing-next">Próximo: Resumo&nbsp; →</button></div></section>`;
 }
@@ -48,7 +55,7 @@ function summaryStep() {
   const cashDiff = Number(state.closing.moneyReceived || 0) - Number(state.closing.moneyExpected || 0);
   const difference = entries.reduce((sum, entry) => sum + entry.received - entry.expected, 0) + cashDiff;
   const mismatches = entries.filter((entry) => entry.received !== entry.expected).map((entry) => `<div class="history-item"><div><strong>${esc(entry.machine.nome_maquina)} · ${esc(entry.company?.nome || 'Empresa')}</strong><small>${esc(state.closing.causes[entry.machine.maquina_id] || 'Sem observação registrada')}</small></div><strong class="${differenceClass(entry.received - entry.expected)}">${money(entry.received - entry.expected)}</strong></div>`).join('');
-  const cashMismatch = cashDiff ? `<div class="history-item"><div><strong>Dinheiro em Caixa</strong><small>Declarado ${money(state.closing.moneyReceived)} · Esperado ${money(state.closing.moneyExpected)}</small></div><strong class="${differenceClass(cashDiff)}">${money(cashDiff)}</strong></div>` : '';
+  const cashMismatch = cashDiff ? `<div class="history-item"><div><strong>Dinheiro em Caixa</strong><small>Declarado ${money(state.closing.moneyReceived)} · Esperado ${money(state.closing.moneyExpected)} · ${esc(state.closing.causes[cashKey] || 'Sem observação registrada')}</small></div><strong class="${differenceClass(cashDiff)}">${money(cashDiff)}</strong></div>` : '';
   return `<section class="closing-work"><div class="summary-by-company">${companyTotals(entries).map((company) => `<article class="metric-card ${company.difference < 0 ? 'negative' : 'positive'}"><small>${esc(company.nome)}</small><strong>${signedMoney(company.difference)}</strong><span>${company.difference < 0 ? 'Falta identificada' : company.difference > 0 ? 'Sobra identificada' : 'Sem diferença'}</span></article>`).join('')}</div><article class="surface"><h2>Divergências Identificadas</h2>${mismatches || cashMismatch ? `${mismatches}${cashMismatch}` : '<p class="helper">Nenhuma divergência identificada.</p>'}<div class="grand-total"><strong>Total Geral</strong><span>Data: ${formatDate(state.closing.date)}</span><span>Diferença: <b class="${differenceClass(difference)}">${money(difference)}</b></span></div><div class="form-actions spread"><button class="secondary" data-action="closing-back">Voltar para Investigar Divergências</button><button class="success" data-action="save-closing">Salvar Fechamento</button></div></article></section>`;
 }
 
@@ -126,6 +133,8 @@ async function saveClosing() {
     data_referencia: state.closing.date,
     valor_dinheiro_esperado: Number(state.closing.moneyExpected || 0),
     valor_dinheiro_declarado: Number(state.closing.moneyReceived || 0),
+    operador_dinheiro_id: state.closing.operators[cashKey] || null,
+    observacao_dinheiro: state.closing.causes[cashKey] || '',
     maquinas,
   }));
   state.detailId = result.fechamento_id;

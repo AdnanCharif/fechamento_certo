@@ -364,7 +364,14 @@ router.post('/postos/:postoId/fechamentos', validarAcessoPosto, rota('Erro ao sa
         for (const [empresaId, total] of totals) await client.query(`INSERT INTO fechamento_empresa (fechamento_id, empresa_id, valor_esperado, valor_recebido) VALUES ($1, $2, $3, $4)`, [fechamentoId, empresaId, total.esperado, total.recebido]);
         const novoFechamento = new Fechamento(req.body);
         const cashDiff = novoFechamento.calcularDiferencaDinheiro();
-        if (cashDiff !== 0) await client.query('INSERT INTO divergencias (fechamento_id, valor_diferenca) VALUES ($1, $2)', [fechamentoId, cashDiff]);
+        if (cashDiff !== 0) {
+            // O dinheiro não pertence a uma empresa: vale qualquer operador do posto.
+            const { operador_dinheiro_id, observacao_dinheiro } = req.body;
+            await validarOperadorDoPosto(client, operador_dinheiro_id, req.params.postoId);
+            const div = await client.query('INSERT INTO divergencias (fechamento_id, operador_id, valor_diferenca) VALUES ($1, $2, $3) RETURNING divergencia_id',
+                [fechamentoId, operador_dinheiro_id || null, cashDiff]);
+            if (observacao_dinheiro?.trim()) await client.query('INSERT INTO observacoes (fechamento_id, divergencia_id, usuario_id, texto) VALUES ($1, $2, $3, $4)', [fechamentoId, div.rows[0].divergencia_id, req.usuarioAutenticado.usuario_id, observacao_dinheiro.trim()]);
+        }
         const status = novoFechamento.definirStatus([...totals.values()].some((t) => t.esperado !== t.recebido));
         await client.query('UPDATE fechamentos SET status = $1, updated_at = now() WHERE fechamento_id = $2', [status, fechamentoId]);
         await registrarLog(client, fechamentoId, req.usuarioAutenticado.usuario_id, 'Criação de fechamento', 'status', null, status);

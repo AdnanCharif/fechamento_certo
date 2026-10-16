@@ -9,7 +9,7 @@ const menus = {
     { page: 'dashboard', icon: '▦', label: 'Dashboard' },
     { page: 'closing', icon: '⊕', label: 'Novo Fechamento' },
     { page: 'history', icon: '◴', label: 'Histórico' },
-    { page: 'network', icon: '⇅', label: 'Comparativo de Postos', badge: 'NOVO', visible: () => state.modules.includes('multi_unidade') },
+    { page: 'network', icon: '⇅', label: 'Comparativo de Postos', visible: () => state.modules.includes('multi_unidade') },
     { page: 'machines', icon: '▤', label: 'Máquinas' },
     { page: 'operators', icon: '☺', label: 'Operadores', visible: () => state.operatorsEnabled },
     { page: 'settings', icon: '⚙', label: 'Configurações' },
